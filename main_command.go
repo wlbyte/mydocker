@@ -61,7 +61,7 @@ var runCommand = cli.Command{
 		if len(context.Args()) < 1 {
 			return fmt.Errorf("missing container command")
 		}
-		cmd := context.Args().Get(0)
+		cmd := context.Args()
 		tty := context.Bool("it")
 		Run(tty, cmd)
 		return nil
@@ -73,9 +73,7 @@ var initCommand = cli.Command{
 	Usage: "Init container process run user's process in container. Do not call it outside",
 	Action: func(context *cli.Context) error {
 		log.Infof("init")
-		cmd := context.Args().Get(0)
-		log.Infof("command: %s", cmd)
-		err := container.RunContainerInitProcess(cmd, nil)
+		err := container.RunContainerInitProcess()
 		return err
 	},
 }

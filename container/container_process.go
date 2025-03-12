@@ -7,13 +7,13 @@ import (
 	"syscall"
 )
 
-func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool) (*exec.Cmd, *os.File, error) {
 	// 创建匿名管道用于传递参数，将readPipe作为子进程的ExtraFiles，子进程从readPipe中读取参数
 	// 父进程中则通过writePipe将参数写入管道
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
-		log.Printf("New pipe error %v", err)
-		return nil, nil
+		log.Printf("[ERROR] New pipe error %v", err)
+		return nil, nil, err
 	}
 	cmd := exec.Command("/proc/self/exe", "init")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -25,6 +25,7 @@ func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
+	cmd.Dir = "/root/busybox"
 	cmd.ExtraFiles = []*os.File{readPipe}
-	return cmd, writePipe
+	return cmd, writePipe, nil
 }

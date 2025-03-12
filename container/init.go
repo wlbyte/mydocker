@@ -2,18 +2,22 @@ package container
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const fdIndex = 3
 
 func RunContainerInitProcess() error {
-	mountProc()
+	setupMount()
 	// 从 pipe 读取命令
 	cmdArray := readUserCommand()
 	if len(cmdArray) == 0 {
@@ -44,10 +48,47 @@ func readUserCommand() []string {
 	return strings.Split(msgStr, " ")
 }
 
-func mountProc() {
+func setupMount() {
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Println("os.Getwd error: " + err.Error())
+		return
+	}
+	log.Println("current location is " + pwd)
 	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
 	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
-	syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "") // 测试执行这个操作也正常
+	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
+		log.Println("setupMount syscall.Mount error:" + err.Error())
+	} // 测试执行这个操作也正常
+	if err := pivotRout(pwd); err != nil {
+		log.Println("setupMount error:" + err.Error())
+		return
+	}
 	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
-	_ = syscall.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
+	unix.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
+	unix.Mount("tmpfs", "/dev", "tmpfs", unix.MS_NOSUID|unix.MS_STRICTATIME, "mode=755")
+}
+
+func pivotRout(root string) error {
+	errFormat := "pivotRout %s error: %w"
+	if err := unix.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return fmt.Errorf(errFormat, "unix.Mount", err)
+	}
+	pivotDir := filepath.Join(root, ".pivot_root")
+	log.Println("pivotDir is  " + pivotDir + ", when unix.PivotRoot")
+	if err := os.Mkdir(pivotDir, 0777); err != nil {
+		return fmt.Errorf(errFormat, "os.Mkdir", err)
+	}
+	if err := unix.PivotRoot(root, pivotDir); err != nil {
+		return fmt.Errorf(errFormat, "unix.PivotRoot", err)
+	}
+	if err := unix.Chdir("/"); err != nil {
+		return fmt.Errorf(errFormat, "unix.Chdir", err)
+	}
+	pivotDir = filepath.Join("/", ".pivot_root")
+	log.Println("pivotDir is  " + pivotDir + ", when unix.Unmount")
+	if err := unix.Unmount(pivotDir, unix.MNT_DETACH); err != nil {
+		return fmt.Errorf(errFormat, "unix.Unmout", err)
+	}
+	return os.Remove(pivotDir)
 }

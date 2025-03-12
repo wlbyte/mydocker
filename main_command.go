@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"log"
+
 	"github.com/urfave/cli"
+	"github.com/wlbyte/mydocker/cgroups"
+	"github.com/wlbyte/mydocker/cgroups/subsystems"
 	"github.com/wlbyte/mydocker/container"
 )
 
@@ -16,54 +21,37 @@ var runCommand = cli.Command{
 
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "it", // 简单起见，这里把 -i 和 -t 参数合并成一个
+			Name:  "it",
 			Usage: "enable tty",
 		},
-		// cli.StringFlag{
-		// 	Name:  "mem", // 限制进程内存使用量，为了避免和 stress 命令的 -m 参数冲突 这里使用 -mem,到时候可以看下解决冲突的方法
-		// 	Usage: "memory limit,e.g.: -mem 100m",
-		// },
-		// cli.StringFlag{
-		// 	Name:  "cpu",
-		// 	Usage: "cpu quota,e.g.: -cpu 100", // 限制进程 cpu 使用率
-		// },
-		// cli.StringFlag{
-		// 	Name:  "cpuset",
-		// 	Usage: "cpuset limit,e.g.: -cpuset 2,4", // 指定cpu位置
-		// },
-		// cli.StringFlag{ // 数据卷
-		// 	Name:  "v",
-		// 	Usage: "volume,e.g.: -v /ect/conf:/etc/conf",
-		// },
-		// cli.BoolFlag{
-		// 	Name:  "d",
-		// 	Usage: "detach container,run background",
-		// },
-		// // 提供run后面的-name指定容器名字参数
-		// cli.StringFlag{
-		// 	Name:  "name",
-		// 	Usage: "container name，e.g.: -name mycontainer",
-		// },
-		// cli.StringSliceFlag{
-		// 	Name:  "e",
-		// 	Usage: "set environment,e.g. -e name=mydocker",
-		// },
-		// cli.StringFlag{
-		// 	Name:  "net",
-		// 	Usage: "container network,e.g. -net testbr",
-		// },
-		// cli.StringSliceFlag{
-		// 	Name:  "p",
-		// 	Usage: "port mapping,e.g. -p 8080:80 -p 30336:3306",
-		// },
+		cli.StringFlag{
+			Name:  "mem",
+			Usage: "memory limit, eg: -mem 100m, {m|M|g|G}",
+		},
+		cli.StringFlag{
+			Name:  "cpu",
+			Usage: "cpu quota, eg: -cpu 0.5", // 限制进程 cpu 使用率
+		},
+		cli.StringFlag{
+			Name:  "cpuset",
+			Usage: "cpuset limit,e.g.: -cpuset 2,4", // 指定cpu位置
+		},
 	},
 	Action: func(context *cli.Context) error {
 		if len(context.Args()) < 1 {
 			return fmt.Errorf("missing container command")
 		}
-		cmd := context.Args()
+		var cmdSlice []string
+		for _, arg := range context.Args() {
+			cmdSlice = append(cmdSlice, arg)
+		}
 		tty := context.Bool("it")
-		Run(tty, cmd)
+		resConf := &subsystems.ResourceConfig{
+			MemoryLimit: context.String("mem"),
+			Cpus:        context.String("cpu"),
+			CpuSet:      context.String("cpuset"),
+		}
+		Run(tty, cmdSlice, resConf)
 		return nil
 	},
 }
@@ -72,8 +60,48 @@ var initCommand = cli.Command{
 	Name:  "init",
 	Usage: "Init container process run user's process in container. Do not call it outside",
 	Action: func(context *cli.Context) error {
-		log.Infof("init")
+		log.Println("init container")
 		err := container.RunContainerInitProcess()
 		return err
 	},
+}
+
+func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig) {
+	parent, writePipe, err := container.NewParentProcess(tty)
+	if err != nil {
+		log.Printf("[ERROR] New parent error: %v\n", err)
+		return
+	}
+	defer writePipe.Close()
+	if err := parent.Start(); err != nil {
+		log.Printf("[ERROR] parent.Start error: %s\n", err)
+		return
+	}
+	sendInitCommand(comArray, writePipe)
+	log.Println("send init command to pipe")
+	cgroupManager := cgroups.NewCgroupManager("mydocker-cgroup")
+	defer func() {
+		if err := cgroupManager.Destroy(); err != nil {
+			log.Println(err)
+		}
+	}()
+	if err := cgroupManager.Set(rs); err != nil {
+		log.Println(err)
+	}
+	if err := cgroupManager.Apply(parent.Process.Pid, rs); err != nil {
+		log.Println(err)
+	}
+	if err := parent.Wait(); err != nil {
+		log.Printf("[ERROR] parent.Wait error: %s\n", err)
+	}
+}
+
+// sendInitCommand 通过writePipe将指令发送给子进程
+func sendInitCommand(comArray []string, writePipe *os.File) {
+	command := strings.Join(comArray, " ")
+	log.Printf("command: %s\n", command)
+	if _, err := writePipe.WriteString(command); err != nil {
+		log.Printf("[ERROR] writePipe.WriteString: %s\n", err)
+	}
+	writePipe.Close()
 }

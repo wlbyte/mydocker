@@ -18,7 +18,7 @@ func (s *CpusetSubSystem) Set(cgroupPath string, res *ResourceConfig) error {
 	if res.CpuSet == "" {
 		return nil
 	}
-	errFormat := "cpusetSubSystem.Set error: %w"
+	errFormat := "cpusetSubSystem.Set: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, true)
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
@@ -36,7 +36,7 @@ func (s *CpusetSubSystem) Apply(cgroupPath string, pid int, res *ResourceConfig)
 	if res.CpuSet == "" {
 		return nil
 	}
-	errFormat := "cpusetSubSystem.Apply error: %w"
+	errFormat := "cpusetSubSystem.Apply: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, false)
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
@@ -49,7 +49,7 @@ func (s *CpusetSubSystem) Apply(cgroupPath string, pid int, res *ResourceConfig)
 
 func (s *CpusetSubSystem) Remove(cgroupPath string) error {
 
-	errFormat := "cpusetSubSystem.Remove error: %w"
+	errFormat := "cpusetSubSystem.Remove: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, false)
 	if err != nil {
 		return fmt.Errorf(errFormat, err)

@@ -25,13 +25,12 @@ func RunContainerInitProcess() error {
 	}
 	path, err := exec.LookPath(cmdArray[0])
 	if err != nil {
-		log.Printf("Exec loop path error %v", err)
 		return err
 	}
-	log.Printf("Find path %s", path)
+	log.Printf("[debug] Find path %s", path)
 
 	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
-		log.Println(err.Error())
+		return err
 	}
 	return nil
 }
@@ -41,7 +40,7 @@ func readUserCommand() []string {
 	defer pipe.Close()
 	msg, err := io.ReadAll(pipe)
 	if err != nil {
-		log.Println("init read pipe error ", err)
+		log.Println("[error] init read pipe:", err)
 		return nil
 	}
 	msgStr := string(msg)
@@ -51,17 +50,17 @@ func readUserCommand() []string {
 func setupMount() {
 	pwd, err := os.Getwd()
 	if err != nil {
-		log.Println("os.Getwd error: " + err.Error())
+		log.Println("[error] os.Getwd:", err)
 		return
 	}
-	log.Println("current location is " + pwd)
+	log.Println("[debug] current location is", pwd)
 	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
 	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
 	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
-		log.Println("setupMount syscall.Mount error:" + err.Error())
+		log.Println("[error] setupMount syscall.Mount:", err)
 	} // 测试执行这个操作也正常
 	if err := pivotRout(pwd); err != nil {
-		log.Println("setupMount error:" + err.Error())
+		log.Println("[error] setupMount:", err)
 		return
 	}
 	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
@@ -70,12 +69,12 @@ func setupMount() {
 }
 
 func pivotRout(root string) error {
-	errFormat := "pivotRout %s error: %w"
+	errFormat := "pivotRout %s: %w"
 	if err := unix.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return fmt.Errorf(errFormat, "unix.Mount", err)
 	}
 	pivotDir := filepath.Join(root, ".pivot_root")
-	log.Println("pivotDir is  " + pivotDir + ", when unix.PivotRoot")
+	log.Println("[debug] pivotDir is  " + pivotDir + ", when unix.PivotRoot")
 	if err := os.Mkdir(pivotDir, 0777); err != nil {
 		return fmt.Errorf(errFormat, "os.Mkdir", err)
 	}
@@ -86,7 +85,7 @@ func pivotRout(root string) error {
 		return fmt.Errorf(errFormat, "unix.Chdir", err)
 	}
 	pivotDir = filepath.Join("/", ".pivot_root")
-	log.Println("pivotDir is  " + pivotDir + ", when unix.Unmount")
+	log.Println("[debug] pivotDir is " + pivotDir + ", when unix.Unmount")
 	if err := unix.Unmount(pivotDir, unix.MNT_DETACH); err != nil {
 		return fmt.Errorf(errFormat, "unix.Unmout", err)
 	}

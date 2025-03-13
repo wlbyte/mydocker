@@ -18,7 +18,7 @@ func (s *MemorySubSystem) Set(cgroupPath string, res *ResourceConfig) error {
 	if res.MemoryLimit == "" {
 		return nil
 	}
-	errFormat := "memorySubSystem.Set error: %w"
+	errFormat := "memorySubSystem.Set: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, true)
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
@@ -33,7 +33,7 @@ func (s *MemorySubSystem) Apply(cgroupPath string, pid int, res *ResourceConfig)
 	if res.MemoryLimit == "" {
 		return nil
 	}
-	errFormat := "memorySubSystem.Apply error: %w"
+	errFormat := "memorySubSystem.Apply: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, false)
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
@@ -45,7 +45,7 @@ func (s *MemorySubSystem) Apply(cgroupPath string, pid int, res *ResourceConfig)
 }
 
 func (s *MemorySubSystem) Remove(cgroupPath string) error {
-	errFormat := "memorySubSystem.Apply: %s error: %w"
+	errFormat := "memorySubSystem.Apply: %s: %w"
 	subsysPath, err := GetCgroupPath(s.Name(), cgroupPath, false)
 	if err != nil {
 		return fmt.Errorf(errFormat, "getCgroupPath", err)

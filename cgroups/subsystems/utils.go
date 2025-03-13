@@ -33,7 +33,7 @@ func FindCgroupMountpoint(subsystem string) string {
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		log.Println("read err:", err)
+		log.Println("[error] scanner:", err)
 	}
 	return ""
 }
@@ -47,9 +47,9 @@ func GetCgroupPath(subsystem string, cgroupPath string, autoCreate bool) (string
 	}
 	if autoCreate && os.IsNotExist(err) {
 		if err := os.Mkdir(absPath, 0755); err != nil {
-			return "", fmt.Errorf("create cgroup error: %w", err)
+			return "", fmt.Errorf("[error] create cgroup: %w", err)
 		}
 		return absPath, nil
 	}
-	return "", fmt.Errorf("create cgroup error: %w", err)
+	return "", fmt.Errorf("create cgroup: %w", err)
 }

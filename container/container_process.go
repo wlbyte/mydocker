@@ -1,24 +1,29 @@
 package container
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
-func NewParentProcess(tty bool) (*exec.Cmd, *os.File, error) {
+func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) {
+	errFormat := "newPararentProcess: %w"
 	// 创建目录和镜像环境
 	mntPath := "/root/merged"
 	rootPath := "/root"
-	NewWorkspace(rootPath, mntPath)
+	NewWorkspace(rootPath, mntPath, volumePath)
 	// 创建匿名管道用于传递参数，将readPipe作为子进程的ExtraFiles，子进程从readPipe中读取参数
 	// 父进程中则通过writePipe将参数写入管道
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		log.Printf("[error] new pipe %v", err)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf(errFormat, err)
 	}
 	cmd := exec.Command("/proc/self/exe", "init")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -36,16 +41,15 @@ func NewParentProcess(tty bool) (*exec.Cmd, *os.File, error) {
 	return cmd, writePipe, nil
 }
 
-func NewWorkspace(rootPath, mntPath string) {
-	createLower(rootPath)
-	createUpperWorker(rootPath)
-	mountOverlayFS(rootPath, mntPath)
+func NewWorkspace(rootPath, mntPath, volumePath string) {
+	createDir(rootPath, mntPath, volumePath)
+	initLower(rootPath)
+	mountPath(rootPath, mntPath, volumePath)
 }
 
-func createLower(rootURL string) {
+func initLower(rootURL string) {
 	busyboxURL := rootURL + "/busybox"
 	busyboxTarURL := rootURL + "/busybox.tar"
-	MkDirErrorExit(busyboxURL, 0777)
 	if pathNotExist(busyboxTarURL) {
 		log.Println("[debug] busybox image is not exist")
 		os.Exit(1)
@@ -56,38 +60,76 @@ func createLower(rootURL string) {
 	}
 }
 
-func createUpperWorker(rootPath string) {
+func createDir(rootPath, mntPath, volumePath string) {
+	// 创建 upper 目录
 	upperPath := rootPath + "/upper"
 	MkDirErrorExit(upperPath, 0755)
+	// 创建work 目录
 	workPath := rootPath + "/work"
 	MkDirErrorExit(workPath, 0755)
+	// 创建容器根目录
+	MkDirErrorExit(mntPath, 0755)
 }
 
-func mountOverlayFS(rootPath, mntPath string) {
+func mountPath(rootPath, mntPath, volumePath string) {
 	// mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper,workdir=/work /merged
-	MkDirErrorExit(mntPath, 0755)
 	dirs := "lowerdir=" + rootPath + "/busybox" + ",upperdir=" + rootPath + "/upper" + ",workdir=" + rootPath + "/work"
 	if output, err := exec.Command("mount", "-t", "overlay", "overlay", "-o", dirs, mntPath).CombinedOutput(); err != nil {
 		log.Println("[error] mount overlayfs:" + err.Error() + "," + string(output))
+		os.Exit(1)
+	}
+	log.Println("[debug] mountPath:", dirs, "->", mntPath)
+	// 挂载-v 指定的 volume
+	if volumePath != "" {
+		volumes, err := parseVolumePath(volumePath)
+		if err != nil {
+			log.Println("[error] mountPath:", err)
+			os.Exit(1)
+		}
+		hostPath := volumes[0]
+		containerPath := mntPath + volumes[1]
+		MkDirErrorExit(hostPath, 0755)
+		MkDirErrorExit(containerPath, 0755)
+		if err := unix.Mount(hostPath, containerPath, "", unix.MS_BIND, ""); err != nil {
+			log.Println("[error] mountPath:", err)
+			os.Exit(1)
+		}
+		log.Println("[debug] mountPath:", hostPath, "->", containerPath)
 	}
 }
 
-func DelWorkspace(rootPath, mntPath string) {
-	umountOverlayFS(mntPath)
-	delDirs(rootPath)
+func DelWorkspace(rootPath, mntPath, volumePath string) {
+	umountPath(mntPath, volumePath)
+	delDirs(rootPath, mntPath)
 }
 
-func umountOverlayFS(mntPath string) {
+func umountPath(mntPath, volumePath string) {
+	if volumePath != "" {
+		volumes, err := parseVolumePath(volumePath)
+		if err != nil {
+			log.Println("[error] umountPath:", err)
+		}
+		containerPath := mntPath + volumes[1]
+		if err := unix.Unmount(containerPath, 0); err != nil {
+			log.Println("[error] umountPath:", containerPath, err)
+		} else {
+			log.Println("[debug] umount", containerPath)
+		}
+
+	}
 	if output, err := exec.Command("umount", mntPath).CombinedOutput(); err != nil {
-		fmt.Println("[error] umount overlayFS " + mntPath + ":" + err.Error() + ", " + string(output))
+		log.Println("[error] umountPath " + mntPath + ":" + string(output))
+	} else {
+		log.Println("[debug] umount", mntPath)
 	}
-	log.Println("[debug] umount", mntPath)
-	RmDir(mntPath)
+
 }
 
-func delDirs(rootPath string) {
+func delDirs(rootPath, mntPath string) {
 	RmDir(rootPath + "/upper")
 	RmDir(rootPath + "/work")
+	// 其他创建的子目录都mntPath，无需单独删除
+	RmDir(mntPath)
 }
 
 func pathNotExist(path string) bool {
@@ -106,7 +148,7 @@ func mkDir(path string, perm os.FileMode) error {
 
 func MkDirErrorExit(path string, perm os.FileMode) {
 	if err := mkDir(path, perm); err != nil {
-		fmt.Println("[error] create dir " + path + ":" + err.Error())
+		log.Println("[error] create dir " + path + ":" + err.Error())
 		os.Exit(1)
 	}
 }
@@ -123,8 +165,32 @@ func rmDir(path string) error {
 
 func RmDir(path string) {
 	if err := rmDir(path); err != nil {
-		fmt.Println("[error] " + err.Error())
-		return
+		log.Println("[error] " + err.Error())
+	} else {
+		log.Println("[debug] rm dir", path)
 	}
-	log.Println("[debug] rm dir", path)
 }
+
+func parseVolumePath(volumePath string) ([]string, error) {
+	errFormat := "parseVolumePath: %w"
+	sSlice := strings.Split(volumePath, ":")
+	if len(sSlice) != 2 || sSlice[0] == "" || sSlice[1] == "" {
+		return nil, fmt.Errorf(errFormat, errors.New("volume path must be split by ':'"))
+	}
+	return sSlice, nil
+}
+
+// func mountVolume(rootPath, volumePath string) error {
+// 	errFormat := "mountVolume: %w"
+// 	volumes, err := parseVolumePath(volumePath)
+// 	if err != nil {
+// 		return fmt.Errorf(errFormat, err)
+// 	}
+// 	containerPath := rootPath + volumes[0]
+// 	hostPath := volumes[1]
+// 	MkDirErrorExit(containerPath, 0755)
+// 	if err := unix.Mount(containerPath, hostPath, "", unix.MS_BIND, ""); err != nil {
+// 		return fmt.Errorf(errFormat, err)
+// 	}
+// 	return nil
+// }

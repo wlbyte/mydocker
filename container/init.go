@@ -17,7 +17,7 @@ import (
 const fdIndex = 3
 
 func RunContainerInitProcess() error {
-	setupMount()
+	errFormat := "runContainerInitProcess: %w"
 	// 从 pipe 读取命令
 	cmdArray := readUserCommand()
 	if len(cmdArray) == 0 {
@@ -25,12 +25,11 @@ func RunContainerInitProcess() error {
 	}
 	path, err := exec.LookPath(cmdArray[0])
 	if err != nil {
-		return err
+		return fmt.Errorf(errFormat, err)
 	}
-	log.Printf("[debug] Find path %s", path)
-
+	setupMount()
 	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
-		return err
+		return fmt.Errorf(errFormat, err)
 	}
 	return nil
 }
@@ -56,7 +55,7 @@ func setupMount() {
 	log.Println("[debug] current location is", pwd)
 	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
 	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
-	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
+	if err := unix.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
 		log.Println("[error] setupMount syscall.Mount:", err)
 	} // 测试执行这个操作也正常
 	if err := pivotRout(pwd); err != nil {

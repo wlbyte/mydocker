@@ -36,10 +36,14 @@ var runCommand = cli.Command{
 			Name:  "cpuset",
 			Usage: "cpuset limit,e.g.: -cpuset 2,4", // 指定cpu位置
 		},
+		cli.StringFlag{
+			Name:  "v",
+			Usage: "mount volume, eg: -v containerDir:hostDir",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		if len(context.Args()) < 1 {
-			return fmt.Errorf("missing container command")
+			return fmt.Errorf("runCommand:")
 		}
 		var cmdSlice []string
 		for _, arg := range context.Args() {
@@ -51,7 +55,8 @@ var runCommand = cli.Command{
 			Cpus:        context.String("cpu"),
 			CpuSet:      context.String("cpuset"),
 		}
-		Run(tty, cmdSlice, resConf)
+		volumePath := context.String("v")
+		Run(tty, cmdSlice, resConf, volumePath)
 		return nil
 	},
 }
@@ -63,21 +68,21 @@ var initCommand = cli.Command{
 		log.Println("[debug] init container")
 		err := container.RunContainerInitProcess()
 		if err != nil {
-			log.Println("[error] ", err)
+			log.Println("[error] initCommand:", err)
 		}
 		return err
 	},
 }
 
-func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig) {
-	parent, writePipe, err := container.NewParentProcess(tty)
+func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath string) {
+	parent, writePipe, err := container.NewParentProcess(tty, volumePath)
 	if err != nil {
-		log.Printf("[error] New parent error: %v\n", err)
+		log.Printf("[error] runCommand.Run: %v", err)
 		return
 	}
 	defer writePipe.Close()
 	if err := parent.Start(); err != nil {
-		log.Printf("[error] parent.Start error: %s\n", err)
+		log.Printf("[error] parent.Start error: %s", err)
 		return
 	}
 	sendInitCommand(comArray, writePipe)
@@ -89,7 +94,7 @@ func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig) {
 			log.Println("[debug] ", err)
 		}
 		log.Println("[debug] clear work dir")
-		container.DelWorkspace("/root", "/root/merged")
+		container.DelWorkspace("/root", "/root/merged", volumePath)
 	}()
 	if err := cgroupManager.Set(rs); err != nil {
 		log.Println("[debug] ", err)

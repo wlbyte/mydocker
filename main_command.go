@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/wlbyte/mydocker/cgroups"
 	"github.com/wlbyte/mydocker/cgroups/subsystems"
 	"github.com/wlbyte/mydocker/container"
+	"github.com/wlbyte/mydocker/image"
 )
 
 var runCommand = cli.Command{
@@ -43,7 +45,7 @@ var runCommand = cli.Command{
 	},
 	Action: func(context *cli.Context) error {
 		if len(context.Args()) < 1 {
-			return fmt.Errorf("runCommand:")
+			return fmt.Errorf("runCommand: %w", errors.New("too few args"))
 		}
 		var cmdSlice []string
 		for _, arg := range context.Args() {
@@ -71,6 +73,29 @@ var initCommand = cli.Command{
 			log.Println("[error] initCommand:", err)
 		}
 		return err
+	},
+}
+
+var commitCommand = cli.Command{
+	Name:  "commit",
+	Usage: "build image",
+	// Flags: []cli.Flag{
+	// 	cli.StringFlag{
+	// 		Name:  "name",
+	// 		Usage: "build container to image. eg: commit -name 'mydocker'",
+	// 	},
+	// },
+	Action: func(ctx *cli.Context) error {
+		log.Println("[debug] build image")
+		errFormat := "build image: %w"
+		if len(ctx.Args()) < 1 {
+			return fmt.Errorf(errFormat, errors.New("too few args"))
+		}
+		imageName := ctx.Args().Get(0)
+		if err := image.BuildImage(imageName); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		return nil
 	},
 }
 

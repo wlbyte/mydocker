@@ -9,15 +9,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/wlbyte/mydocker/constants"
 	"golang.org/x/sys/unix"
 )
 
 func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) {
 	errFormat := "newPararentProcess: %w"
 	// 创建目录和镜像环境
-	mntPath := "/root/merged"
-	rootPath := "/root"
-	NewWorkspace(rootPath, mntPath, volumePath)
+	NewWorkspace(constants.ROOT_PATH, constants.MNT_PATH, volumePath)
 	// 创建匿名管道用于传递参数，将readPipe作为子进程的ExtraFiles，子进程从readPipe中读取参数
 	// 父进程中则通过writePipe将参数写入管道
 	readPipe, writePipe, err := os.Pipe()
@@ -37,7 +36,7 @@ func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) 
 	}
 
 	cmd.ExtraFiles = []*os.File{readPipe}
-	cmd.Dir = mntPath
+	cmd.Dir = constants.MNT_PATH
 	return cmd, writePipe, nil
 }
 

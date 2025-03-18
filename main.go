@@ -20,6 +20,7 @@ func main() {
 	app.Commands = []cli.Command{
 		initCommand,
 		runCommand,
+		commitCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {
@@ -28,6 +29,6 @@ func main() {
 		return nil
 	}
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatal("[fatal] Run error: ", err)
 	}
 }

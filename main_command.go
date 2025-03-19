@@ -24,34 +24,42 @@ var runCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "it",
-			Usage: "enable tty",
+			Usage: "enable tty, eg: run -it ",
 		},
 		cli.StringFlag{
 			Name:  "mem",
-			Usage: "memory limit, eg: -mem 100m, {m|M|g|G}",
+			Usage: "memory limit, eg: run -mem 100m, {m|M|g|G}",
 		},
 		cli.StringFlag{
 			Name:  "cpu",
-			Usage: "cpu quota, eg: -cpu 0.5", // 限制进程 cpu 使用率
+			Usage: "cpu quota, eg: run -cpu 0.5", // 限制进程 cpu 使用率
 		},
 		cli.StringFlag{
 			Name:  "cpuset",
-			Usage: "cpuset limit,e.g.: -cpuset 2,4", // 指定cpu位置
+			Usage: "cpuset limit,e.g.: run -cpuset 2,4", // 指定cpu位置
 		},
 		cli.StringFlag{
 			Name:  "v",
-			Usage: "mount volume, eg: -v containerDir:hostDir",
+			Usage: "mount volume, eg: run -v containerDir:hostDir",
+		},
+		cli.BoolFlag{
+			Name:  "d",
+			Usage: "detach, eg: run -d",
 		},
 	},
 	Action: func(context *cli.Context) error {
 		if len(context.Args()) < 1 {
 			return fmt.Errorf("runCommand: %w", errors.New("too few args"))
 		}
+		tty := context.Bool("it")
+		detach := context.Bool("d")
+		if tty && detach || (!tty && !detach) {
+			return fmt.Errorf("runCommand: %w", errors.New("choose flag between -it and -d"))
+		}
 		var cmdSlice []string
 		for _, arg := range context.Args() {
 			cmdSlice = append(cmdSlice, arg)
 		}
-		tty := context.Bool("it")
 		resConf := &subsystems.ResourceConfig{
 			MemoryLimit: context.String("mem"),
 			Cpus:        context.String("cpu"),
@@ -113,23 +121,24 @@ func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath 
 	sendInitCommand(comArray, writePipe)
 	log.Println("[debug] send init command to pipe")
 	cgroupManager := cgroups.NewCgroupManager("mydocker-cgroup")
-	defer func() {
-		log.Println("[debug] release resource")
-		if err := cgroupManager.Destroy(); err != nil {
-			log.Println("[debug] ", err)
-		}
-		log.Println("[debug] clear work dir")
-		container.DelWorkspace("/root", "/root/merged", volumePath)
-	}()
 	if err := cgroupManager.Set(rs); err != nil {
 		log.Println("[debug] ", err)
 	}
 	if err := cgroupManager.Apply(parent.Process.Pid, rs); err != nil {
 		log.Println("[debug] ", err)
 	}
-	if err := parent.Wait(); err != nil {
-		log.Printf("[error] parent.Wait error: %s\n", err)
+	if tty {
+		if err := parent.Wait(); err != nil {
+			log.Printf("[error] parent.Wait error: %s\n", err)
+		}
+		log.Println("[debug] release resource")
+		if err := cgroupManager.Destroy(); err != nil {
+			log.Println("[debug] ", err)
+		}
+		log.Println("[debug] clear work dir")
+		container.DelWorkspace("/root", "/root/merged", volumePath)
 	}
+	log.Println("[debug] run as a daemon")
 }
 
 // sendInitCommand 通过writePipe将指令发送给子进程

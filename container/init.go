@@ -18,6 +18,7 @@ const fdIndex = 3
 
 func RunContainerInitProcess() error {
 	errFormat := "runContainerInitProcess: %w"
+	setupMount() // 必需先挂载，否者后续在LookPath会提示找不到路径
 	// 从 pipe 读取命令
 	cmdArray := readUserCommand()
 	if len(cmdArray) == 0 {
@@ -27,7 +28,6 @@ func RunContainerInitProcess() error {
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
-	setupMount()
 	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}

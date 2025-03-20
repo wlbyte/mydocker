@@ -44,6 +44,9 @@ func NewWorkspace(rootPath, mntPath, volumePath string) {
 	createDir(rootPath, mntPath, volumePath)
 	initLower(rootPath)
 	mountPath(rootPath, mntPath, volumePath)
+	// 创建容器根配置目录
+	curPath := constants.CONTAINER_ROOT_PATH
+	MkDirErrorExit(curPath, 0755)
 }
 
 func initLower(rootURL string) {
@@ -97,9 +100,15 @@ func mountPath(rootPath, mntPath, volumePath string) {
 	}
 }
 
-func DelWorkspace(rootPath, mntPath, volumePath string) {
+func DelWorkspace(rootPath, mntPath, volumePath, containerDir string) {
 	umountPath(mntPath, volumePath)
-	delDirs(rootPath, mntPath)
+	dirs := []string{
+		rootPath + "/upper",
+		rootPath + "/work",
+		mntPath,
+		constants.CONTAINER_ROOT_PATH + "/" + containerDir,
+	}
+	delDirs(dirs)
 }
 
 func umountPath(mntPath, volumePath string) {
@@ -124,11 +133,10 @@ func umountPath(mntPath, volumePath string) {
 
 }
 
-func delDirs(rootPath, mntPath string) {
-	RmDir(rootPath + "/upper")
-	RmDir(rootPath + "/work")
-	// 其他创建的子目录都mntPath，无需单独删除
-	RmDir(mntPath)
+func delDirs(dirs []string) {
+	for _, d := range dirs {
+		RmDir(d)
+	}
 }
 
 func pathNotExist(path string) bool {
@@ -138,7 +146,7 @@ func pathNotExist(path string) bool {
 
 func mkDir(path string, perm os.FileMode) error {
 	if pathNotExist(path) {
-		if err := os.Mkdir(path, perm); err != nil {
+		if err := os.MkdirAll(path, perm); err != nil {
 			return fmt.Errorf("[error] mkDir: %w", err)
 		}
 	}

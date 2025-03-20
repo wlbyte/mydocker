@@ -1,16 +1,24 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/rand/v2"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"log"
 
 	"github.com/urfave/cli"
 	"github.com/wlbyte/mydocker/cgroups"
 	"github.com/wlbyte/mydocker/cgroups/subsystems"
+	"github.com/wlbyte/mydocker/constants"
 	"github.com/wlbyte/mydocker/container"
 	"github.com/wlbyte/mydocker/image"
 )
@@ -46,6 +54,10 @@ var runCommand = cli.Command{
 			Name:  "d",
 			Usage: "detach, eg: run -d",
 		},
+		cli.StringFlag{
+			Name:  "name",
+			Usage: "container name, eg: run -name",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		if len(context.Args()) < 1 {
@@ -66,7 +78,8 @@ var runCommand = cli.Command{
 			CpuSet:      context.String("cpuset"),
 		}
 		volumePath := context.String("v")
-		Run(tty, cmdSlice, resConf, volumePath)
+		containerName := context.String("name")
+		Run(tty, cmdSlice, resConf, volumePath, containerName)
 		return nil
 	},
 }
@@ -107,15 +120,45 @@ var commitCommand = cli.Command{
 	},
 }
 
-func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath string) {
+var listCommand = cli.Command{
+	Name:  "ps",
+	Usage: "list container info",
+	Action: func(context *cli.Context) error {
+		log.Println("[debug] list container info")
+		fs := findAllJsonFile(constants.CONTAINER_ROOT_PATH)
+		cis := getContainerInfo(fs)
+		printContainerInfo(cis)
+		return nil
+	},
+}
+
+func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath, containerName string) {
 	parent, writePipe, err := container.NewParentProcess(tty, volumePath)
 	if err != nil {
 		log.Printf("[error] runCommand.Run: %v", err)
 		return
 	}
+
 	defer writePipe.Close()
 	if err := parent.Start(); err != nil {
 		log.Printf("[error] parent.Start error: %s", err)
+		return
+	}
+
+	cId := strconv.Itoa(rand.Int())
+	if containerName == "" {
+		containerName = cId
+	}
+	info := &containerInfo{
+		Id:       cId,
+		Name:     containerName,
+		Pid:      parent.Process.Pid,
+		Cmd:      strings.Join(comArray, " "),
+		Status:   "Running",
+		CreateAt: time.Now().Format("2006-01-02 15:04:05"),
+	}
+	if err := recordContainerInfo(*info); err != nil {
+		log.Printf("[error] run error: %s", err)
 		return
 	}
 	sendInitCommand(comArray, writePipe)
@@ -136,7 +179,7 @@ func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath 
 			log.Println("[debug] ", err)
 		}
 		log.Println("[debug] clear work dir")
-		container.DelWorkspace("/root", "/root/merged", volumePath)
+		container.DelWorkspace("/root", "/root/merged", volumePath, info.Id)
 	}
 	log.Println("[debug] run as a daemon")
 }
@@ -149,4 +192,86 @@ func sendInitCommand(comArray []string, writePipe *os.File) {
 		log.Printf("[error] writePipe.WriteString: %s\n", err)
 	}
 	writePipe.Close()
+}
+
+type containerInfo struct {
+	Id       string //`json:"Id"`
+	Name     string //`json:"Name"`
+	Pid      int    //`json:"Pid"`
+	Cmd      string //`json:"Cmd"`
+	Status   string //`json:"Status"`
+	CreateAt string //`json:"CreateAt"`
+}
+
+func recordContainerInfo(ci containerInfo) error {
+	errFormat := "recordContainerInfo: %w"
+	curPath := constants.CONTAINER_ROOT_PATH + "/" + ci.Id
+	container.MkDirErrorExit(curPath, 0755)
+	bs, err := json.Marshal(ci)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	if err := os.WriteFile(curPath+"/config.json", bs, 0755); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	return nil
+}
+
+func getContainerInfo(fs []string) []*containerInfo {
+	// errFormat := "getContainerInfo: %w"
+	var cis []*containerInfo
+
+	for _, f := range fs {
+		var info containerInfo
+		bs, err := os.ReadFile(f)
+		if err != nil && err != io.EOF {
+			log.Println("[error] read json file:", err)
+			continue
+		}
+		if err := json.Unmarshal(bs, &info); err != nil {
+			log.Println("[error] read json file:", err)
+			continue
+		}
+		cis = append(cis, &info)
+	}
+	return cis
+}
+
+func printContainerInfo(cis []*containerInfo) {
+	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
+	_, err := fmt.Fprint(w, "ID\tNAME\tPID\tSTATUS\tCOMMAND\tCREATED\n")
+	if err != nil {
+		log.Println("[error] printContainerInfo:", err)
+	}
+	for _, c := range cis {
+		_, err := fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
+			c.Id,
+			c.Name,
+			c.Pid,
+			c.Status,
+			c.Cmd,
+			c.CreateAt,
+		)
+		if err != nil {
+			log.Println("[error] printContainerInfo:", err)
+		}
+	}
+	if err := w.Flush(); err != nil {
+		log.Println("[error] printContainerInfo:", err)
+	}
+}
+
+func findAllJsonFile(dir string) []string {
+	var jsonfiles []string
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Println("[error] filepath.Walk:", path, err)
+			return err
+		}
+		if !info.IsDir() && filepath.Ext(path) == ".json" {
+			jsonfiles = append(jsonfiles, path)
+		}
+		return nil
+	})
+	return jsonfiles
 }

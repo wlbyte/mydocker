@@ -1,7 +1,8 @@
 package constants
 
 const (
-	ROOT_PATH           = "/root"
-	MNT_PATH            = ROOT_PATH + "/merged"
-	CONTAINER_ROOT_PATH = "/var/lib/mydocker/containers"
+	HOME_PATH      = "/var/lib/mydocker"
+	ROOT_PATH      = "/root"
+	MNT_PATH       = ROOT_PATH + "/merged"
+	CONTAINER_PATH = HOME_PATH + "/containers"
 )

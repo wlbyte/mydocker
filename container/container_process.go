@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/wlbyte/mydocker/constants"
 	"golang.org/x/sys/unix"
@@ -25,14 +24,17 @@ func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) 
 		return nil, nil, fmt.Errorf(errFormat, err)
 	}
 	cmd := exec.Command("/proc/self/exe", "init")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID |
-			syscall.CLONE_NEWNET | syscall.CLONE_NEWNS | syscall.CLONE_NEWIPC,
+	cmd.SysProcAttr = &unix.SysProcAttr{
+		Cloneflags: unix.CLONE_NEWPID | unix.CLONE_NEWIPC |
+			unix.CLONE_NEWNS | unix.CLONE_NEWNET |
+			unix.CLONE_NEWUTS | unix.CLONE_NEWUSER,
 	}
 	if tty {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	} else {
+
 	}
 
 	cmd.ExtraFiles = []*os.File{readPipe}
@@ -45,7 +47,7 @@ func NewWorkspace(rootPath, mntPath, volumePath string) {
 	initLower(rootPath)
 	mountPath(rootPath, mntPath, volumePath)
 	// 创建容器根配置目录
-	curPath := constants.CONTAINER_ROOT_PATH
+	curPath := constants.CONTAINER_PATH
 	MkDirErrorExit(curPath, 0755)
 }
 
@@ -106,7 +108,7 @@ func DelWorkspace(rootPath, mntPath, volumePath, containerDir string) {
 		rootPath + "/upper",
 		rootPath + "/work",
 		mntPath,
-		constants.CONTAINER_ROOT_PATH + "/" + containerDir,
+		constants.CONTAINER_PATH + "/" + containerDir,
 	}
 	delDirs(dirs)
 }

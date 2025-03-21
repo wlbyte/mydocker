@@ -9,9 +9,9 @@ var (
 )
 
 type ResourceConfig struct {
-	MemoryLimit string
-	Cpus        string
-	CpuSet      string
+	MemoryLimit string `json:"memoryLimit"`
+	Cpus        string `json:"cpus"`
+	CpuSet      string `json:"cpuset"`
 }
 
 type Subsystem interface {

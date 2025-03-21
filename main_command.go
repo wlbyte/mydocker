@@ -63,23 +63,31 @@ var runCommand = cli.Command{
 		if len(context.Args()) < 1 {
 			return fmt.Errorf("runCommand: %w", errors.New("too few args"))
 		}
-		tty := context.Bool("it")
-		detach := context.Bool("d")
-		if tty && detach || (!tty && !detach) {
+		c := &container.Container{
+			Id:       strconv.Itoa(rand.Int()),
+			Name:     context.String("name"),
+			TTY:      context.Bool("it"),
+			Detach:   context.Bool("d"),
+			Volume:   context.String("v"),
+			CreateAt: time.Now().Format("2006-01-02 15:04:05"),
+		}
+		if c.TTY && c.Detach || (!c.TTY && !c.Detach) {
 			return fmt.Errorf("runCommand: %w", errors.New("choose flag between -it and -d"))
 		}
-		var cmdSlice []string
-		for _, arg := range context.Args() {
-			cmdSlice = append(cmdSlice, arg)
+		if c.Name == "" {
+			c.Name = c.Id
 		}
-		resConf := &subsystems.ResourceConfig{
+		var cmds []string
+		for _, arg := range context.Args() {
+			cmds = append(cmds, arg)
+		}
+		c.Cmds = cmds
+		c.ResourceConfig = &subsystems.ResourceConfig{
 			MemoryLimit: context.String("mem"),
 			Cpus:        context.String("cpu"),
 			CpuSet:      context.String("cpuset"),
 		}
-		volumePath := context.String("v")
-		containerName := context.String("name")
-		Run(tty, cmdSlice, resConf, volumePath, containerName)
+		Run(c)
 		return nil
 	},
 }
@@ -125,52 +133,40 @@ var listCommand = cli.Command{
 	Usage: "list container info",
 	Action: func(context *cli.Context) error {
 		log.Println("[debug] list container info")
-		fs := findAllJsonFile(constants.CONTAINER_ROOT_PATH)
+		fs := findAllJsonFile(constants.CONTAINER_PATH)
 		cis := getContainerInfo(fs)
 		printContainerInfo(cis)
 		return nil
 	},
 }
 
-func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath, containerName string) {
-	parent, writePipe, err := container.NewParentProcess(tty, volumePath)
+func Run(c *container.Container) {
+	parent, writePipe, err := container.NewParentProcess(c.TTY, c.Volume)
 	if err != nil {
 		log.Printf("[error] runCommand.Run: %v", err)
 		return
 	}
-
 	defer writePipe.Close()
 	if err := parent.Start(); err != nil {
 		log.Printf("[error] parent.Start error: %s", err)
 		return
 	}
-
-	cId := strconv.Itoa(rand.Int())
-	if containerName == "" {
-		containerName = cId
-	}
-	info := &containerInfo{
-		Id:       cId,
-		Name:     containerName,
-		Pid:      parent.Process.Pid,
-		Cmd:      strings.Join(comArray, " "),
-		Status:   "Running",
-		CreateAt: time.Now().Format("2006-01-02 15:04:05"),
-	}
-	if err := recordContainerInfo(*info); err != nil {
+	c.Pid = parent.Process.Pid
+	c.Status = "Running"
+	if err := recordContainerInfo(c); err != nil {
 		log.Printf("[error] run error: %s", err)
 		return
 	}
-	sendInitCommand(comArray, writePipe)
+	sendInitCommand(c.Cmds, writePipe)
 	log.Println("[debug] send init command to pipe")
 	cgroupManager := cgroups.NewCgroupManager("mydocker-cgroup")
-	if err := cgroupManager.Set(rs); err != nil {
+	if err := cgroupManager.Set(c.ResourceConfig); err != nil {
 		log.Println("[debug] ", err)
 	}
-	if err := cgroupManager.Apply(parent.Process.Pid, rs); err != nil {
+	if err := cgroupManager.Apply(parent.Process.Pid, c.ResourceConfig); err != nil {
 		log.Println("[debug] ", err)
 	}
-	if tty {
+	if c.TTY {
 		if err := parent.Wait(); err != nil {
 			log.Printf("[error] parent.Wait error: %s\n", err)
 		}
@@ -179,7 +175,7 @@ func Run(tty bool, comArray []string, rs *subsystems.ResourceConfig, volumePath,
 			log.Println("[debug] ", err)
 		}
 		log.Println("[debug] clear work dir")
-		container.DelWorkspace("/root", "/root/merged", volumePath, info.Id)
+		container.DelWorkspace("/root", "/root/merged", c.Volume, c.Id)
 	}
 	log.Println("[debug] run as a daemon")
 }
@@ -194,18 +190,9 @@ func sendInitCommand(comArray []string, writePipe *os.File) {
 	writePipe.Close()
 }
 
-type containerInfo struct {
-	Id       string //`json:"Id"`
-	Name     string //`json:"Name"`
-	Pid      int    //`json:"Pid"`
-	Cmd      string //`json:"Cmd"`
-	Status   string //`json:"Status"`
-	CreateAt string //`json:"CreateAt"`
-}
-
-func recordContainerInfo(ci containerInfo) error {
+func recordContainerInfo(ci *container.Container) error {
 	errFormat := "recordContainerInfo: %w"
-	curPath := constants.CONTAINER_ROOT_PATH + "/" + ci.Id
+	curPath := constants.CONTAINER_PATH + "/" + ci.Id
 	container.MkDirErrorExit(curPath, 0755)
 	bs, err := json.Marshal(ci)
 	if err != nil {
@@ -217,39 +204,39 @@ func recordContainerInfo(ci containerInfo) error {
 	return nil
 }
 
-func getContainerInfo(fs []string) []*containerInfo {
+func getContainerInfo(fs []string) []*container.Container {
 	// errFormat := "getContainerInfo: %w"
-	var cis []*containerInfo
+	var cis []*container.Container
 
 	for _, f := range fs {
-		var info containerInfo
+		var c container.Container
 		bs, err := os.ReadFile(f)
 		if err != nil && err != io.EOF {
 			log.Println("[error] read json file:", err)
 			continue
 		}
-		if err := json.Unmarshal(bs, &info); err != nil {
+		if err := json.Unmarshal(bs, &c); err != nil {
 			log.Println("[error] read json file:", err)
 			continue
 		}
-		cis = append(cis, &info)
+		cis = append(cis, &c)
 	}
 	return cis
 }
 
-func printContainerInfo(cis []*containerInfo) {
+func printContainerInfo(ci []*container.Container) {
 	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
 	_, err := fmt.Fprint(w, "ID\tNAME\tPID\tSTATUS\tCOMMAND\tCREATED\n")
 	if err != nil {
 		log.Println("[error] printContainerInfo:", err)
 	}
-	for _, c := range cis {
+	for _, c := range ci {
 		_, err := fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
 			c.Id,
 			c.Name,
 			c.Pid,
 			c.Status,
-			c.Cmd,
+			c.Cmds,
 			c.CreateAt,
 		)
 		if err != nil {

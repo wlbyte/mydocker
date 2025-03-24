@@ -12,10 +12,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) {
+func NewParentProcess(c *Container) (*exec.Cmd, *os.File, error) {
 	errFormat := "newPararentProcess: %w"
 	// 创建目录和镜像环境
-	NewWorkspace(constants.ROOT_PATH, constants.MNT_PATH, volumePath)
+	NewWorkspace(constants.ROOT_PATH, constants.MNT_PATH, c.Volume)
 	// 创建匿名管道用于传递参数，将readPipe作为子进程的ExtraFiles，子进程从readPipe中读取参数
 	// 父进程中则通过writePipe将参数写入管道
 	readPipe, writePipe, err := os.Pipe()
@@ -29,12 +29,22 @@ func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) 
 			unix.CLONE_NEWNS | unix.CLONE_NEWNET |
 			unix.CLONE_NEWUTS,
 	}
-	if tty {
+	if c.TTY {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
-
+		logPath := fmt.Sprintf("%s/%s", constants.CONTAINER_PATH, c.Id)
+		if err := mkDir(logPath, 0755); err != nil {
+			return nil, nil, fmt.Errorf(errFormat, err)
+		}
+		logFile := fmt.Sprintf("%s/%s/%s.log", constants.CONTAINER_PATH, c.Id, c.Id)
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_RDWR, 0755)
+		if err != nil {
+			return nil, nil, fmt.Errorf(errFormat, err)
+		}
+		cmd.Stdout = f
+		cmd.Stderr = f
 	}
 
 	cmd.ExtraFiles = []*os.File{readPipe}
@@ -188,18 +198,3 @@ func parseVolumePath(volumePath string) ([]string, error) {
 	}
 	return sSlice, nil
 }
-
-// func mountVolume(rootPath, volumePath string) error {
-// 	errFormat := "mountVolume: %w"
-// 	volumes, err := parseVolumePath(volumePath)
-// 	if err != nil {
-// 		return fmt.Errorf(errFormat, err)
-// 	}
-// 	containerPath := rootPath + volumes[0]
-// 	hostPath := volumes[1]
-// 	MkDirErrorExit(containerPath, 0755)
-// 	if err := unix.Mount(containerPath, hostPath, "", unix.MS_BIND, ""); err != nil {
-// 		return fmt.Errorf(errFormat, err)
-// 	}
-// 	return nil
-// }

@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -21,6 +19,7 @@ import (
 	"github.com/wlbyte/mydocker/constants"
 	"github.com/wlbyte/mydocker/container"
 	"github.com/wlbyte/mydocker/image"
+	"github.com/wlbyte/mydocker/util"
 )
 
 var runCommand = cli.Command{
@@ -64,7 +63,6 @@ var runCommand = cli.Command{
 			return fmt.Errorf("runCommand: %w", errors.New("too few args"))
 		}
 		c := &container.Container{
-			Id:       strconv.Itoa(rand.Int()),
 			Name:     context.String("name"),
 			TTY:      context.Bool("it"),
 			Detach:   context.Bool("d"),
@@ -74,8 +72,17 @@ var runCommand = cli.Command{
 		if c.TTY && c.Detach || (!c.TTY && !c.Detach) {
 			return fmt.Errorf("runCommand: %w", errors.New("choose flag between -it and -d"))
 		}
+		id, err := util.HashStr(c)
+		if err != nil {
+			log.Println("[error] runCommand.Run:", err)
+		}
+		c.Id = id
 		if c.Name == "" {
-			c.Name = c.Id
+			if len(c.Id) > 12 {
+				c.Name = c.Id[:12]
+			} else {
+				c.Name = c.Id
+			}
 		}
 		var cmds []string
 		for _, arg := range context.Args() {
@@ -133,22 +140,45 @@ var listCommand = cli.Command{
 	Usage: "list container info",
 	Action: func(context *cli.Context) error {
 		log.Println("[debug] list container info")
-		fs := findAllJsonFile(constants.CONTAINER_PATH)
-		cis := getContainerInfo(fs)
+		fs := findJsonFilePathAll(constants.CONTAINER_PATH)
+		cis := getContainerInfoAll(fs)
 		printContainerInfo(cis)
 		return nil
 	},
 }
 
+var logsCommand = cli.Command{
+	Name:  "logs",
+	Usage: "get container logs",
+	Action: func(context *cli.Context) error {
+		log.Println("[debug] get container logs")
+		if len(context.Args()) < 1 {
+			return fmt.Errorf("logsCommand: %w", errors.New("no container ID"))
+		}
+		cSubID := context.Args().Get(0)
+		f := findJsonFilePath(cSubID, constants.CONTAINER_PATH)
+		c := getContainerInfo(f)
+		if c != nil {
+			logFile := fmt.Sprintf("%s/%s/%s.log", constants.CONTAINER_PATH, c.Id, c.Id)
+			bs, err := os.ReadFile(logFile)
+			if err != nil {
+				return fmt.Errorf("logsCommand: %w", err)
+			}
+			fmt.Printf("%s\n", bs)
+		}
+		return nil
+	},
+}
+
 func Run(c *container.Container) {
-	parent, writePipe, err := container.NewParentProcess(c.TTY, c.Volume)
+	parent, writePipe, err := container.NewParentProcess(c)
 	if err != nil {
-		log.Printf("[error] runCommand.Run: %v", err)
+		log.Println("[error] runCommand.Run:", err)
 		return
 	}
 	defer writePipe.Close()
 	if err := parent.Start(); err != nil {
-		log.Printf("[error] parent.Start error: %s", err)
+		log.Println("[error] runCommand.Run:", err)
 		return
 	}
 	c.Pid = parent.Process.Pid
@@ -176,6 +206,7 @@ func Run(c *container.Container) {
 		}
 		log.Println("[debug] clear work dir")
 		container.DelWorkspace("/root", "/root/merged", c.Volume, c.Id)
+		return
 	}
 	log.Println("[debug] run as a daemon")
 }
@@ -204,24 +235,31 @@ func recordContainerInfo(ci *container.Container) error {
 	return nil
 }
 
-func getContainerInfo(fs []string) []*container.Container {
-	// errFormat := "getContainerInfo: %w"
+func getContainerInfoAll(fs []string) []*container.Container {
 	var cis []*container.Container
 
 	for _, f := range fs {
-		var c container.Container
-		bs, err := os.ReadFile(f)
-		if err != nil && err != io.EOF {
-			log.Println("[error] read json file:", err)
+		c := getContainerInfo(f)
+		if c == nil {
 			continue
 		}
-		if err := json.Unmarshal(bs, &c); err != nil {
-			log.Println("[error] read json file:", err)
-			continue
-		}
-		cis = append(cis, &c)
+		cis = append(cis, c)
 	}
 	return cis
+}
+
+func getContainerInfo(f string) *container.Container {
+	var c *container.Container
+	bs, err := os.ReadFile(f)
+	if err != nil && err != io.EOF {
+		log.Println("[error] getContainerInfo:", err)
+		return nil
+	}
+	if err := json.Unmarshal(bs, &c); err != nil {
+		log.Println("[error] getContainerInfo:", err)
+		return nil
+	}
+	return c
 }
 
 func printContainerInfo(ci []*container.Container) {
@@ -230,9 +268,14 @@ func printContainerInfo(ci []*container.Container) {
 	if err != nil {
 		log.Println("[error] printContainerInfo:", err)
 	}
+
 	for _, c := range ci {
+		prtintID := c.Id
+		if len(c.Id) > 12 {
+			prtintID = c.Id[:12]
+		}
 		_, err := fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
-			c.Id,
+			prtintID,
 			c.Name,
 			c.Pid,
 			c.Status,
@@ -248,17 +291,32 @@ func printContainerInfo(ci []*container.Container) {
 	}
 }
 
-func findAllJsonFile(dir string) []string {
-	var jsonfiles []string
+func findJsonFilePathAll(dir string) []string {
+	var filePaths []string
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Println("[error] filepath.Walk:", path, err)
 			return err
 		}
 		if !info.IsDir() && filepath.Ext(path) == ".json" {
-			jsonfiles = append(jsonfiles, path)
+			filePaths = append(filePaths, path)
 		}
 		return nil
 	})
-	return jsonfiles
+	return filePaths
+}
+
+func findJsonFilePath(subPath, dir string) string {
+	var ret string
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Println("[error] findJsonFilePath:", path, err)
+			return err
+		}
+		if info.Mode().IsRegular() && strings.Contains(path, subPath) && filepath.Ext(path) == ".json" {
+			ret = path
+		}
+		return nil
+	})
+	return ret
 }

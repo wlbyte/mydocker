@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -28,7 +27,7 @@ func RunContainerInitProcess() error {
 	if err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
-	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
+	if err := unix.Exec(path, cmdArray[0:], os.Environ()); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
 	return nil
@@ -55,21 +54,21 @@ func setupMount() {
 	log.Println("[debug] current location is", pwd)
 	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
 	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
-	if err := unix.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
-		log.Println("[error] setupMount syscall.Mount:", err)
+	if err := unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
+		log.Println("[error] setupMount unix.Mount:", err)
 	} // 测试执行这个操作也正常
 	if err := pivotRout(pwd); err != nil {
 		log.Println("[error] setupMount:", err)
 		return
 	}
-	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
+	defaultMountFlags := unix.MS_NOEXEC | unix.MS_NOSUID | unix.MS_NODEV
 	unix.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
 	unix.Mount("tmpfs", "/dev", "tmpfs", unix.MS_NOSUID|unix.MS_STRICTATIME, "mode=755")
 }
 
 func pivotRout(root string) error {
 	errFormat := "pivotRout %s: %w"
-	if err := unix.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+	if err := unix.Mount(root, root, "bind", unix.MS_BIND|unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf(errFormat, "unix.Mount", err)
 	}
 	pivotDir := filepath.Join(root, ".pivot_root")

@@ -14,12 +14,3 @@ type Container struct {
 	ResourceConfig *subsystems.ResourceConfig `json:"resourceConfig"`
 	CreateAt       string                     `json:"createAt"`
 }
-
-// type ContainerRecordInfo struct {
-// 	Id       string `json:"id"`
-// 	Name     string `json:"name"`
-// 	Pid      int    `json:"pid"`
-// 	Cmd      string `json:"cmd"`
-// 	Status   string `json:"status"`
-// 	CreateAt string `json:"createAt"`
-// }

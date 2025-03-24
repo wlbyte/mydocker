@@ -27,7 +27,7 @@ func NewParentProcess(tty bool, volumePath string) (*exec.Cmd, *os.File, error) 
 	cmd.SysProcAttr = &unix.SysProcAttr{
 		Cloneflags: unix.CLONE_NEWPID | unix.CLONE_NEWIPC |
 			unix.CLONE_NEWNS | unix.CLONE_NEWNET |
-			unix.CLONE_NEWUTS | unix.CLONE_NEWUSER,
+			unix.CLONE_NEWUTS,
 	}
 	if tty {
 		cmd.Stdin = os.Stdin

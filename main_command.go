@@ -115,12 +115,6 @@ var initCommand = cli.Command{
 var commitCommand = cli.Command{
 	Name:  "commit",
 	Usage: "build image",
-	// Flags: []cli.Flag{
-	// 	cli.StringFlag{
-	// 		Name:  "name",
-	// 		Usage: "build container to image. eg: commit -name 'mydocker'",
-	// 	},
-	// },
 	Action: func(ctx *cli.Context) error {
 		log.Println("[debug] build image")
 		errFormat := "build image: %w"
@@ -166,6 +160,26 @@ var logsCommand = cli.Command{
 			}
 			fmt.Printf("%s\n", bs)
 		}
+		return nil
+	},
+}
+
+var execCommand = cli.Command{
+	Name:  "exec",
+	Usage: "exec container command",
+	Action: func(context *cli.Context) error {
+		log.Println("[debug] exec container command")
+		if os.Getenv(EnvExecPid) != "" {
+			log.Printf("[debug] pid callback pid %d\n", os.Getgid())
+			return nil
+		}
+		if len(context.Args()) < 2 {
+			return fmt.Errorf("missing container id or command")
+		}
+		cId := context.Args().Get(0)
+		var cmds []string
+		cmds = append(cmds, context.Args().Tail()...)
+		execContainer(cId, cmds)
 		return nil
 	},
 }

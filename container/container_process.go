@@ -27,7 +27,13 @@ func NewParentProcess(c *Container) (*exec.Cmd, *os.File, error) {
 	cmd.SysProcAttr = &unix.SysProcAttr{
 		Cloneflags: unix.CLONE_NEWPID | unix.CLONE_NEWIPC |
 			unix.CLONE_NEWNS | unix.CLONE_NEWNET |
-			unix.CLONE_NEWUTS,
+			unix.CLONE_NEWUTS, // | unix.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{ContainerID: 0, HostID: os.Getegid(), Size: 1},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{ContainerID: 0, HostID: os.Getegid(), Size: 1},
+		// },
 	}
 	if c.TTY {
 		cmd.Stdin = os.Stdin

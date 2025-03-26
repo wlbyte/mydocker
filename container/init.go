@@ -52,11 +52,13 @@ func setupMount() {
 		return
 	}
 	log.Println("[debug] current location is", pwd)
-	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
+	// 在容器启动时，挂载命名空间默认是共享的，尤其是当系统使用systemd时。因此，需要显式地将根目录的传播类型设置为私有，
+	// 以确保容器内的挂载操作不会影响到宿主机或其他容器。这一步通常在设置新的mount namespace之后执行，以确保隔离
+	// 这行代码的作用是递归地将根目录及其子挂载点的传播类型设置为私有，为后续的挂载操作（如proc、tmpfs）提供隔离环境，避免影响宿主机或其他容器。
 	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
 	if err := unix.Mount("", "/", "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
 		log.Println("[error] setupMount unix.Mount:", err)
-	} // 测试执行这个操作也正常
+	}
 	if err := pivotRout(pwd); err != nil {
 		log.Println("[error] setupMount:", err)
 		return

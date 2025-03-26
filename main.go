@@ -25,6 +25,7 @@ func main() {
 		logsCommand,
 		execCommand,
 		stopCommand,
+		rmCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {
@@ -33,6 +34,6 @@ func main() {
 		return nil
 	}
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal("[fatal] Run error: ", err)
+		log.Fatal("[error] mydocker error: ", err)
 	}
 }

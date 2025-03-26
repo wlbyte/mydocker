@@ -202,6 +202,29 @@ var stopCommand = cli.Command{
 	},
 }
 
+var rmCommand = cli.Command{
+	Name:  "rm",
+	Usage: "remove container stopped",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "f",
+			Usage: "force remove container, eg: rm -f ID ",
+		},
+	},
+	Action: func(ctx *cli.Context) error {
+		log.Println("[debug] remove container")
+		errFormat := "rmCommand: %w"
+		if len(ctx.Args()) < 1 {
+			return fmt.Errorf(errFormat, errors.New("too few args"))
+		}
+		f := ctx.Bool("f")
+		if err := rmContainer(ctx.Args(), f); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		return nil
+	},
+}
+
 func Run(c *container.Container) {
 	parent, writePipe, err := container.NewParentProcess(c)
 	if err != nil {
@@ -214,7 +237,7 @@ func Run(c *container.Container) {
 		return
 	}
 	c.Pid = parent.Process.Pid
-	c.Status = "Running"
+	c.Status = constants.STATE_RUNNING
 	if err := recordContainerInfo(c); err != nil {
 		log.Printf("[error] run error: %s", err)
 		return
@@ -309,11 +332,11 @@ func getContainerInfo(f string) *container.Container {
 	var c *container.Container
 	bs, err := os.ReadFile(f)
 	if err != nil && err != io.EOF {
-		log.Println("[error] getContainerInfo:", err)
+		log.Println("[info] getContainerInfo:", err)
 		return nil
 	}
 	if err := json.Unmarshal(bs, &c); err != nil {
-		log.Println("[error] getContainerInfo:", err)
+		log.Println("[info] getContainerInfo:", err)
 		return nil
 	}
 	return c
@@ -377,5 +400,26 @@ func stopContainer(containerID string) error {
 	if err := recordContainerInfo(c); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
+	return nil
+}
+
+func rmContainer(containerID []string, force bool) error {
+	errFormat := "rmContainer: %w"
+	for _, id := range containerID {
+		c := GetContainerInfo(id, constants.CONTAINER_PATH)
+		if c == nil {
+			return fmt.Errorf(errFormat, errors.New("conainter is not exist"))
+		}
+		if c.Status == constants.STATE_RUNNING {
+			if !force {
+				return fmt.Errorf(errFormat, errors.New("container must be stopped"))
+			}
+			if err := stopContainer(id); err != nil {
+				return fmt.Errorf(errFormat, err)
+			}
+		}
+		container.RmDir(constants.CONTAINER_PATH + "/" + c.Id)
+	}
+
 	return nil
 }

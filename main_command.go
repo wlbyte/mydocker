@@ -20,6 +20,7 @@ import (
 	"github.com/wlbyte/mydocker/container"
 	"github.com/wlbyte/mydocker/image"
 	"github.com/wlbyte/mydocker/util"
+	"golang.org/x/sys/unix"
 )
 
 var runCommand = cli.Command{
@@ -184,6 +185,23 @@ var execCommand = cli.Command{
 	},
 }
 
+var stopCommand = cli.Command{
+	Name:  "stop",
+	Usage: "stop container",
+	Action: func(ctx *cli.Context) error {
+		log.Println("[debug] stop container")
+		errFormat := "stopCommand: %w"
+		if len(ctx.Args()) < 1 {
+			return fmt.Errorf(errFormat, errors.New("too few args"))
+		}
+		containerID := ctx.Args().Get(0)
+		if err := stopContainer(containerID); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		return nil
+	},
+}
+
 func Run(c *container.Container) {
 	parent, writePipe, err := container.NewParentProcess(c)
 	if err != nil {
@@ -249,6 +267,11 @@ func recordContainerInfo(ci *container.Container) error {
 	return nil
 }
 
+func GetContainerInfoAll(searchDir string) []*container.Container {
+	fs := findJsonFilePathAll(searchDir)
+	return getContainerInfoAll(fs)
+}
+
 func getContainerInfoAll(fs []string) []*container.Container {
 	var cis []*container.Container
 
@@ -260,6 +283,26 @@ func getContainerInfoAll(fs []string) []*container.Container {
 		cis = append(cis, c)
 	}
 	return cis
+}
+
+func findJsonFilePathAll(dir string) []string {
+	var filePaths []string
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Println("[error] filepath.Walk:", path, err)
+			return err
+		}
+		if !info.IsDir() && filepath.Ext(path) == ".json" {
+			filePaths = append(filePaths, path)
+		}
+		return nil
+	})
+	return filePaths
+}
+
+func GetContainerInfo(containerID, searchDir string) *container.Container {
+	f := findJsonFilePath(containerID, searchDir)
+	return getContainerInfo(f)
 }
 
 func getContainerInfo(f string) *container.Container {
@@ -274,6 +317,21 @@ func getContainerInfo(f string) *container.Container {
 		return nil
 	}
 	return c
+}
+
+func findJsonFilePath(subFilePath, searchDir string) string {
+	var ret string
+	filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Println("[error] findJsonFilePath:", path, err)
+			return err
+		}
+		if info.Mode().IsRegular() && strings.Contains(path, subFilePath) && filepath.Ext(path) == ".json" {
+			ret = path
+		}
+		return nil
+	})
+	return ret
 }
 
 func printContainerInfo(ci []*container.Container) {
@@ -305,32 +363,19 @@ func printContainerInfo(ci []*container.Container) {
 	}
 }
 
-func findJsonFilePathAll(dir string) []string {
-	var filePaths []string
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Println("[error] filepath.Walk:", path, err)
-			return err
-		}
-		if !info.IsDir() && filepath.Ext(path) == ".json" {
-			filePaths = append(filePaths, path)
-		}
-		return nil
-	})
-	return filePaths
-}
-
-func findJsonFilePath(subPath, dir string) string {
-	var ret string
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Println("[error] findJsonFilePath:", path, err)
-			return err
-		}
-		if info.Mode().IsRegular() && strings.Contains(path, subPath) && filepath.Ext(path) == ".json" {
-			ret = path
-		}
-		return nil
-	})
-	return ret
+func stopContainer(containerID string) error {
+	errFormat := "stopContainer: %w"
+	c := GetContainerInfo(containerID, constants.CONTAINER_PATH)
+	if c == nil {
+		return fmt.Errorf(errFormat, errors.New("conainter is not exist"))
+	}
+	if err := unix.Kill(c.Pid, unix.SIGTERM); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	c.Pid = 0
+	c.Status = constants.STATE_STOPPED
+	if err := recordContainerInfo(c); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	return nil
 }

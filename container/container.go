@@ -15,6 +15,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var ErrContainerNotExist = errors.New("container not exist")
+
 type Container struct {
 	Id             string                     `json:"id"`
 	Name           string                     `json:"name"`
@@ -25,6 +27,7 @@ type Container struct {
 	TTY            bool                       `json:"tty"`
 	Detach         bool                       `json:"detach"`
 	Volume         string                     `json:"volume"`
+	Environment    []string                   `json:"environment"`
 	ResourceConfig *subsystems.ResourceConfig `json:"resourceConfig"`
 	CreateAt       string                     `json:"createAt"`
 }
@@ -54,6 +57,7 @@ func NewParentProcess(c *Container) (*exec.Cmd, *os.File, error) {
 		// 	{ContainerID: 0, HostID: os.Getegid(), Size: 1},
 		// },
 	}
+	cmd.Env = append(os.Environ(), c.Environment...)
 	if c.TTY {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout

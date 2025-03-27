@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/wlbyte/mydocker/consts"
+	"github.com/wlbyte/mydocker/container"
 	_ "github.com/wlbyte/mydocker/nsenter"
 )
 
@@ -22,28 +24,29 @@ var ExecCommand = cli.Command{
 	Name:  "exec",
 	Usage: "exec container command",
 	Action: func(context *cli.Context) error {
-		log.Println("[debug] exec container command")
+		errFormat := "execCommand: %w"
 		if os.Getenv(EnvExecPid) != "" {
-			log.Printf("[debug] pid callback pid %d\n", os.Getgid())
 			return nil
 		}
 		if len(context.Args()) < 2 {
-			return fmt.Errorf("missing container id or command")
+			return fmt.Errorf(errFormat, errors.New("missing containerID or command"))
 		}
 		cId := context.Args().Get(0)
 		var cmds []string
 		cmds = append(cmds, context.Args().Tail()...)
-		execContainer(cId, cmds)
+		if err := execContainer(cId, cmds); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
 		return nil
 	},
 }
 
-func execContainer(containerId string, comdArray []string) {
+func execContainer(containerId string, comdArray []string) error {
+	errFormat := "execContainer: %w"
 	f := findJsonFilePath(containerId, consts.PATH_CONTAINER)
 	c := getContainerInfo(f)
 	if c == nil {
-		log.Println("[error] execContainer getContainerInfo: container info is nil")
-		os.Exit(1)
+		return fmt.Errorf(errFormat, container.ErrContainerNotExist)
 	}
 	pid := c.Pid
 	cmd := exec.Command("/proc/self/exe", "exec")
@@ -52,10 +55,29 @@ func execContainer(containerId string, comdArray []string) {
 	cmd.Stderr = os.Stderr
 
 	cmdStr := strings.Join(comdArray, " ")
-	log.Printf("[debug] container pid: %d command: %s\n", pid, cmdStr)
 	os.Setenv(EnvExecPid, strconv.Itoa(pid))
 	os.Setenv(EnvExecCmd, cmdStr)
-	if err := cmd.Run(); err != nil {
-		log.Println("[error] exec container:", err)
+	envs, err := getEnvsById(containerId)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
 	}
+	cmd.Env = append(os.Environ(), envs...)
+	log.Printf("[debug] container pid: %d, command: %s\n", pid, cmdStr)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	return nil
+}
+
+func getEnvsById(containerID string) ([]string, error) {
+	errFormat := "getEnvsByID: %w"
+	c := GetContainerInfo(containerID)
+	if c == nil {
+		return nil, fmt.Errorf(errFormat, container.ErrContainerNotExist)
+	}
+	bs, err := os.ReadFile("/proc/" + strconv.Itoa(c.Pid) + "/environ")
+	if err != nil {
+		return nil, fmt.Errorf(errFormat, err)
+	}
+	return strings.Split(string(bs), "\u0000"), nil
 }

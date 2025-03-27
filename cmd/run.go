@@ -50,6 +50,10 @@ var RunCommand = cli.Command{
 			Name:  "name",
 			Usage: "container name, eg: run -name",
 		},
+		cli.StringSliceFlag{
+			Name:  "e",
+			Usage: "pass environment variables, eg: run -e name=mydocker",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		errFormat := "runCommand: %w"
@@ -57,11 +61,12 @@ var RunCommand = cli.Command{
 			return fmt.Errorf(errFormat, errors.New("too few args"))
 		}
 		c := &container.Container{
-			Name:     context.String("name"),
-			TTY:      context.Bool("it"),
-			Detach:   context.Bool("d"),
-			Volume:   context.String("v"),
-			CreateAt: time.Now().Format("2006-01-02 15:04:05"),
+			Name:        context.String("name"),
+			TTY:         context.Bool("it"),
+			Detach:      context.Bool("d"),
+			Volume:      context.String("v"),
+			Environment: context.StringSlice("e"),
+			CreateAt:    time.Now().Format("2006-01-02 15:04:05"),
 		}
 		if c.TTY && c.Detach || (!c.TTY && !c.Detach) {
 			return fmt.Errorf(errFormat, errors.New("choose flag between -it and -d"))

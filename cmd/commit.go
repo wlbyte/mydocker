@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/urfave/cli"
+	"github.com/wlbyte/mydocker/container"
 	"github.com/wlbyte/mydocker/image"
 )
 
@@ -22,7 +23,7 @@ var CommitCommand = cli.Command{
 		imageName := ctx.Args().Get(1)
 		c := GetContainerInfo(containerID)
 		if c == nil {
-			return fmt.Errorf(errFormat, errors.New("container not exist"))
+			return fmt.Errorf(errFormat, container.ErrContainerNotExist)
 		}
 		if err := image.BuildImage(c.Id, imageName); err != nil {
 			return fmt.Errorf(errFormat, err)

@@ -2,21 +2,23 @@ package image
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
+	"path/filepath"
 
-	"github.com/wlbyte/mydocker/constants"
+	"github.com/wlbyte/mydocker/consts"
 )
 
-func BuildImage(imageName string) error {
-	srcDir := constants.MNT_PATH
+type Image struct{}
+
+func BuildImage(containerID, imageName string) error {
+	srcDir := consts.GetPathMerged(containerID)
 	// ctx := context.TODO()
 
 	// files, err := archives.FilesFromDisk(ctx, nil, map[string]string{srcDir: ""})
 	// if err != nil {
 	// 	return fmt.Errorf("BuildImage: %w", err)
 	// }
-	imageTar := imageName + ".tar"
+	imageTar := filepath.Join(consts.PATH_IMAGE, imageName+".tar")
 	// outFile, err := os.Create(imageTar)
 	// if err != nil {
 	// 	return fmt.Errorf("BuildImage: %w", err)
@@ -33,6 +35,5 @@ func BuildImage(imageName string) error {
 	if _, err := exec.Command("tar", "-czf", imageTar, "-C", srcDir, ".").CombinedOutput(); err != nil {
 		return fmt.Errorf("buildImage: %w", err)
 	}
-	log.Println("[debug] build image:", imageTar)
 	return nil
 }

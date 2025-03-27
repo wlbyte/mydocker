@@ -1,9 +1,10 @@
-package util
+package utils
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 )
 
 func HashStr(v any) (string, error) {
@@ -13,4 +14,9 @@ func HashStr(v any) (string, error) {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func PathNotExist(path string) bool {
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }

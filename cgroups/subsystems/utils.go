@@ -7,6 +7,8 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/wlbyte/mydocker/consts"
 )
 
 func FindCgroupMountpoint(subsystem string) string {
@@ -46,7 +48,7 @@ func GetCgroupPath(subsystem string, cgroupPath string, autoCreate bool) (string
 		return absPath, nil
 	}
 	if autoCreate && os.IsNotExist(err) {
-		if err := os.Mkdir(absPath, 0755); err != nil {
+		if err := os.MkdirAll(absPath, consts.MODE_0755); err != nil {
 			return "", fmt.Errorf("[error] create cgroup: %w", err)
 		}
 		return absPath, nil

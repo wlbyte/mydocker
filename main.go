@@ -6,6 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+	"github.com/wlbyte/mydocker/cmd"
 )
 
 const usage = `mydocker is a simple container runtime implementation.
@@ -18,14 +19,14 @@ func main() {
 	app.Usage = usage
 
 	app.Commands = []cli.Command{
-		initCommand,
-		runCommand,
-		commitCommand,
-		listCommand,
-		logsCommand,
-		execCommand,
-		stopCommand,
-		rmCommand,
+		cmd.InitCommand,
+		cmd.RunCommand,
+		cmd.CommitCommand,
+		cmd.ListCommand,
+		cmd.LogsCommand,
+		cmd.ExecCommand,
+		cmd.StopCommand,
+		cmd.RemoveCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {
@@ -34,6 +35,6 @@ func main() {
 		return nil
 	}
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal("[error] mydocker error: ", err)
+		log.Fatal("[error] mydocker: ", err)
 	}
 }

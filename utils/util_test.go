@@ -1,9 +1,7 @@
-package util
+package utils
 
 import (
 	"testing"
-
-	"github.com/wlbyte/mydocker/container"
 )
 
 func TestHashStr(t *testing.T) {
@@ -17,7 +15,10 @@ func TestHashStr(t *testing.T) {
 		t.Errorf("Expected hash %s, got %s", expectedHash, str)
 	}
 	// test struct case
-	c := container.Container{
+	c := struct {
+		Name   string
+		Volume string
+	}{
 		Name:   "test",
 		Volume: "/root",
 	}

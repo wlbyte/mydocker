@@ -1,13 +1,15 @@
-package main
+package cmd
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
-	"github.com/wlbyte/mydocker/constants"
+	"github.com/urfave/cli"
+	"github.com/wlbyte/mydocker/consts"
 	_ "github.com/wlbyte/mydocker/nsenter"
 )
 
@@ -16,8 +18,28 @@ const (
 	EnvExecCmd = "mydocker_cmd"
 )
 
+var ExecCommand = cli.Command{
+	Name:  "exec",
+	Usage: "exec container command",
+	Action: func(context *cli.Context) error {
+		log.Println("[debug] exec container command")
+		if os.Getenv(EnvExecPid) != "" {
+			log.Printf("[debug] pid callback pid %d\n", os.Getgid())
+			return nil
+		}
+		if len(context.Args()) < 2 {
+			return fmt.Errorf("missing container id or command")
+		}
+		cId := context.Args().Get(0)
+		var cmds []string
+		cmds = append(cmds, context.Args().Tail()...)
+		execContainer(cId, cmds)
+		return nil
+	},
+}
+
 func execContainer(containerId string, comdArray []string) {
-	f := findJsonFilePath(containerId, constants.CONTAINER_PATH)
+	f := findJsonFilePath(containerId, consts.PATH_CONTAINER)
 	c := getContainerInfo(f)
 	if c == nil {
 		log.Println("[error] execContainer getContainerInfo: container info is nil")

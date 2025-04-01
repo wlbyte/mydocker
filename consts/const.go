@@ -4,8 +4,9 @@ import (
 	"fmt"
 )
 
+const PATH_HOME = "/var/lib/mydocker"
+
 const (
-	PATH_HOME          = "/var/lib/mydocker"
 	PATH_CONTAINER     = PATH_HOME + "/containers"
 	PATH_IMAGE         = PATH_HOME + "/image"
 	PATH_FS_ROOT       = PATH_HOME + "/overlay2"
@@ -20,6 +21,13 @@ const (
 	MODE_0755      = 0755
 	STATUS_RUNNING = "running"
 	STATUS_STOPPED = "stopped"
+)
+
+// network
+const (
+	PATH_NETWORK   = PATH_HOME + "/network"
+	PATH_IPAM      = PATH_NETWORK + "/ipam"
+	PATH_IPAM_JSON = PATH_IPAM + "/subnet.json"
 )
 
 func GetPathLower(containerID string) string {

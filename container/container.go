@@ -84,17 +84,17 @@ func NewParentProcess(c *Container) (*exec.Cmd, *os.File, error) {
 func NewWorkspace(c *Container) error {
 	errFormat := "initContainerDir %s: %w"
 	// 创建数据目录
-	containerPath := consts.PATH_CONTAINER
-	rootFSPath := consts.PATH_FS_ROOT
-	imagePath := consts.PATH_IMAGE
-	if err := os.MkdirAll(containerPath, consts.MODE_0755); err != nil {
+	if err := os.MkdirAll(consts.PATH_CONTAINER, consts.MODE_0755); err != nil {
 		return fmt.Errorf(errFormat, consts.PATH_CONTAINER, err)
 	}
-	if err := os.MkdirAll(rootFSPath, consts.MODE_0755); err != nil {
+	if err := os.MkdirAll(consts.PATH_FS_ROOT, consts.MODE_0755); err != nil {
 		return fmt.Errorf(errFormat, consts.PATH_FS_ROOT, err)
 	}
-	if err := os.MkdirAll(imagePath, consts.MODE_0755); err != nil {
+	if err := os.MkdirAll(consts.PATH_IMAGE, consts.MODE_0755); err != nil {
 		return fmt.Errorf(errFormat, consts.PATH_IMAGE, err)
+	}
+	if err := os.MkdirAll(consts.PATH_IPAM, consts.MODE_0755); err != nil {
+		return fmt.Errorf(errFormat, consts.PATH_IPAM, err)
 	}
 	// 创建当前容器目录
 	lower := consts.GetPathLower(c.Id)

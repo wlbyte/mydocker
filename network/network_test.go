@@ -41,11 +41,11 @@ var bridgeName = "mydocker0"
 
 func TestBridgeCreate(t *testing.T) {
 	bridge := &BridgeNetworkDriver{}
-	n, err := bridge.Create("172.18.0.1/16", bridgeName)
+	err := bridge.Create("172.18.0.0/16", bridgeName)
 	if err != nil {
 		t.Errorf("bridge.Create %s", err)
 	}
-	t.Logf("bridge.Create %s", n.Name)
+	t.Logf("bridge.Create %s", bridgeName)
 }
 
 func TestBridgeDelete(t *testing.T) {

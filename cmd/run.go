@@ -19,7 +19,7 @@ import (
 
 var RunCommand = cli.Command{
 	Name:  "run",
-	Usage: "Create a container. eg: mydocker run -d|-it [-name containerName] [imageName] [command]",
+	Usage: "Create a container",
 
 	Flags: []cli.Flag{
 		cli.BoolFlag{

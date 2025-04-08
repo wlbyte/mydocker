@@ -146,3 +146,39 @@ func TestCharSet(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFirstIP(t *testing.T) {
+	type args struct {
+		subnet string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+		{
+			name: "valid subnet",
+			args: args{subnet: "172.21.18.0/24"},
+			want: "172.21.18.1/24",
+		},
+		{
+			name: "invalid subnet",
+			args: args{subnet: "0.0.0.0/24"},
+			want: "0.0.0.1/24",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseFirstIP(tt.args.subnet)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseFirstIP() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseFirstIP() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

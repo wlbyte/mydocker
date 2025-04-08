@@ -12,7 +12,7 @@ import (
 // eg: s := "0000000"
 func GetChar(s *string, c byte) (uint, error) {
 	for i, v := range *s {
-		if i == 0 || i == 1 || i == len(*s)-1 {
+		if i == 0 || i == len(*s)-1 {
 			continue
 		}
 		if v == rune(c) {
@@ -57,4 +57,15 @@ func Uint2IPv4(n uint) net.IP {
 
 func IPv42Uint(bs net.IP) uint {
 	return uint(bs[0])<<24 + uint(bs[1])<<16 + uint(bs[2])<<8 + uint(bs[3])
+}
+
+func ParseFirstIP(subnet string) (string, error) {
+	errFormat := "parseFirstIP: %w"
+	_, ipnet, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf(errFormat, err)
+	}
+	ipnet.IP[3] |= 1
+
+	return ipnet.String(), nil
 }

@@ -63,6 +63,7 @@ type Endpoint struct {
 type IPAMer interface {
 	Allocate(subnet *net.IPNet) (ip net.IP, err error)
 	Release(subnet *net.IPNet, ipaddr *net.IP) error
+	ReleaseSubnet(subnet string) error
 }
 
 // IPAM 实现了 IPAMer 接口
@@ -78,7 +79,6 @@ var ipAllocator = &IPAM{
 }
 
 func NewIPAM() IPAMer {
-	ipAllocator.load()
 	return ipAllocator
 }
 
@@ -149,6 +149,20 @@ func (i *IPAM) Release(subnet *net.IPNet, ip *net.IP) error {
 	if err := SetChar(n, i.Subnets[subnet.String()], '0'); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
+	if err := i.dump(); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	return nil
+}
+
+func (i *IPAM) ReleaseSubnet(subnet string) error {
+	errFormat := "ipam.ReleaseSubnet: %w"
+	i.wg.Lock()
+	defer i.wg.Unlock()
+	if err := i.load(); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	delete(i.Subnets, subnet)
 	if err := i.dump(); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}

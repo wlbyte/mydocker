@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -126,14 +127,27 @@ var NetworkRemoveCommand = cli.Command{
 		if err != nil {
 			return fmt.Errorf(errFormat, err)
 		}
-		// if err := driver.Delete(n.Name); err != nil {
-		// 	return fmt.Errorf(errFormat, err)
-		// }
 		driver.Delete(n.Name)
-		if err := os.Remove(jsonFile); err != nil {
+		bs, err := os.ReadFile(jsonFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return fmt.Errorf(errFormat, err)
 		}
-
+		if err := json.Unmarshal(bs, n); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		ipam := network.NewIPAM()
+		if err := ipam.ReleaseSubnet(n.Subnet); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		if err := os.Remove(jsonFile); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf(errFormat, err)
+		}
 		return nil
 	},
 }

@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net"
 	"os"
 
 	"github.com/urfave/cli"
@@ -52,39 +50,12 @@ var NetworkCreateCommand = cli.Command{
 		}
 		networkName := context.Args().Get(0)
 		driverStr := context.String("driver")
-		driver, err := network.NewNetworkDriver(driverStr)
-		if err != nil {
-			return fmt.Errorf(errFormat, err)
-		}
 		subnetStr := context.String("subnet")
-		if subnetStr == "" {
-			return fmt.Errorf(errFormat, errors.New("subnet is required"))
-		}
-		ip, ipRange, _ := net.ParseCIDR(subnetStr)
-		ipRange.IP = ip
-		_, sub, err := net.ParseCIDR(subnetStr)
-		if err != nil {
-			return fmt.Errorf(errFormat, err)
-		}
-		ipam := network.NewIPAM()
-		gateway, err := ipam.Allocate(sub)
-		if err != nil {
-			return fmt.Errorf(errFormat, err)
-		}
-		err = driver.Create(subnetStr, networkName)
-		if err != nil {
+
+		if err := network.ConfigBridge(driverStr, networkName, subnetStr); err != nil {
 			return fmt.Errorf(errFormat, err)
 		}
 
-		n := &network.Network{
-			Name:    networkName,
-			Subnet:  subnetStr,
-			Driver:  driverStr,
-			Gateway: gateway.String(),
-		}
-		if err := n.Dump(); err != nil {
-			return fmt.Errorf(errFormat, err)
-		}
 		return nil
 	},
 }

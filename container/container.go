@@ -29,6 +29,8 @@ type Container struct {
 	Volume         string                     `json:"volume"`
 	Environment    []string                   `json:"environment"`
 	ResourceConfig *subsystems.ResourceConfig `json:"resourceConfig"`
+	Network        string                     `json:"network"`
+	PortMapping    []string                   `json:"portMapping"`
 	CreateAt       string                     `json:"createAt"`
 }
 

@@ -8,12 +8,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 	"github.com/wlbyte/mydocker/consts"
+	"github.com/wlbyte/mydocker/container"
 )
+
+/*
+1. docker run 运行容器
+2. 如果没有执行网络， 则默认使用 bridge 网络
+3. 检查默认bridge有没有创建，没有则创建
+4. 创建容器网络端点， 并把本地端点加入到 bridge
+5. 把 peer加入到容器
+6. up容器 lo 口， 配置容器接口地址和路由
+
+*/
 
 var (
 	drivers = map[string]Driver{}
@@ -169,159 +183,162 @@ func (i *IPAM) ReleaseSubnet(subnet string) error {
 	return nil
 }
 
-type Driver interface {
-	Name() string
-	Create(subnet string, name string) error
-	Delete(name string) error
-	Connect(network *Network, endpoint *Endpoint) error
-	Disconnect(network *Network, endpoint *Endpoint) error
-}
-
-// BridgeNetworkDriver 实现 Driver 接口
-type BridgeNetworkDriver struct {
-}
-
-func newDefaultNetworkDriver() Driver {
-	return &BridgeNetworkDriver{}
-}
-
-func NewNetworkDriver(driver string) (Driver, error) {
-	errFormat := "newNetworkDriver: %w"
-	var d Driver
-	if driver == "" || driver == consts.DEFAULT_DRIVER {
-		d = newDefaultNetworkDriver()
+func Connect(c *container.Container) error {
+	errFormat := "network.Connect: %w"
+	// 初始化默认bridge网络
+	if c.Network == "host" {
+		return fmt.Errorf(errFormat, errors.New("unsupport host"))
+	} else if c.Network == "mydocker0" || c.Network == "" {
+		if err := ConfigBridge("", c.Network, "172.18.0.0/24"); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
 	} else {
-		return nil, fmt.Errorf(errFormat, errors.New("unsupported driver"))
+		if _, err := net.InterfaceByName(c.Network); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
 	}
-	return d, nil
-}
+	// create veth
+	bridge := &BridgeNetworkDriver{}
 
-func (b *BridgeNetworkDriver) Name() string {
-	return consts.DEFAULT_DRIVER
-}
-func (b *BridgeNetworkDriver) Create(subnet string, name string) error {
-	errFormat := "bridge.Create: %w"
-	_, sub, err := net.ParseCIDR(subnet)
-	if err != nil {
-		return fmt.Errorf(errFormat, err)
+	n := Network{
+		Name: c.Network,
 	}
-	if err := b.initBridge(subnet, name); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := setupIPTables(name, sub, "add"); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	return nil
-}
-
-func (b *BridgeNetworkDriver) initBridge(subnet, name string) error {
-	errFormat := "bridge.initBridge: %w"
-	if err := createBridgeInterface(name); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	address, err := ParseFirstIP(subnet)
-	if err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := setInterfaceIP(name, address); err != nil {
+	if err := n.Load(); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
 
-	return nil
-}
+	// 获取 IP
+	_, sub, err := net.ParseCIDR(n.Subnet)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	ip, err := NewIPAM().Allocate(sub)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
 
-func createBridgeInterface(name string) error {
-	errFormat := "bridge.createBridgeInterface: %w"
-	_, err := net.InterfaceByName(name)
-	if err == nil {
-		return fmt.Errorf(errFormat, errors.New("bridge already exists"))
+	endpoint := &Endpoint{
+		ID:          c.Id + "-" + n.Name,
+		IPAddress:   ip,
+		Network:     &n,
+		PortMapping: c.PortMapping,
 	}
-	if !strings.Contains(err.Error(), "no such network interface") {
-		return err
-	}
-	la := netlink.NewLinkAttrs()
-	la.Name = name
-	br := &netlink.Bridge{LinkAttrs: la}
-	if err := netlink.LinkAdd(br); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := netlink.LinkSetUp(br); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	return nil
-}
 
-func setInterfaceIP(name string, address string) error {
-	errFormat := "bridge.setInterfaceIP: %w"
-	addr, err := netlink.ParseAddr(address)
-	if err != nil {
+	if err := bridge.Connect(&n, endpoint); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
-	link, err := netlink.LinkByName(name)
-	if err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := netlink.AddrReplace(link, addr); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	return nil
-}
 
-func setupIPTables(bridgeName string, subnet *net.IPNet, action string) error {
-	errFormat := "bridge.setupIPTables: %w"
-	var act string
-	if action == "del" {
-		act = "-D"
-	} else {
-		act = "-A"
-	}
-	cmdStr := fmt.Sprintf("-t nat %s POSTROUTING -s %s ! -o %s -j MASQUERADE", act, subnet.String(), bridgeName)
-	if output, err := exec.Command("iptables", strings.Split(cmdStr, " ")...).CombinedOutput(); err != nil {
-		return fmt.Errorf(errFormat, errors.New(string(output)))
-	}
-	return nil
-}
-func (b *BridgeNetworkDriver) Delete(name string) error {
-	link, err := netlink.LinkByName(name)
-	if err != nil {
-		return err
-	}
-	if err := netlink.LinkDel(link); err != nil {
-		return fmt.Errorf("network.Delete: %w", err)
-	}
-	return nil
-}
-func (b *BridgeNetworkDriver) Connect(network *Network, endpoint *Endpoint) error {
-	errFormat := "bridge.Connect: %w"
-	br, err := netlink.LinkByName(network.Name)
-	if err != nil {
+	if err := configEndpointIpAddressAndRoute(endpoint, c); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
-	la := netlink.NewLinkAttrs()
-	la.Name = endpoint.ID[:5]
-	la.MasterIndex = br.Attrs().Index
-	endpoint.Device = netlink.Veth{
-		LinkAttrs: la,
-		PeerName:  "cif-" + endpoint.ID[:5],
-	}
-	if err := netlink.LinkAdd(&endpoint.Device); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := netlink.LinkSetUp(&endpoint.Device); err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	return nil
-}
-func (b *BridgeNetworkDriver) Disconnect(network *Network, endpoint *Endpoint) error {
-	errFormat := "bridge.Disconnect: %w"
-	vethName := endpoint.ID[:5]
-	veth, err := netlink.LinkByName(vethName)
-	if err != nil {
-		return fmt.Errorf(errFormat, err)
-	}
-	if err := netlink.LinkSetNoMaster(veth); err != nil {
+
+	if err := configPortMapping(endpoint, c); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
 
 	return nil
+}
+
+func Disconnect(c *container.Container) error {
+	return nil
+}
+
+func configEndpointIpAddressAndRoute(e *Endpoint, c *container.Container) error {
+	errFormat := "configEndpointIpAddressAndRoute: %w"
+	l, err := netlink.LinkByName(e.Device.PeerName)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	defer enterContainerNetns(&l, c)()
+
+	_, ipNet, err := net.ParseCIDR(e.Network.Subnet)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	ipNet.IP = e.IPAddress
+	if err := setInterfaceIP(e.Device.PeerName, string(ipNet.String())); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	if err := setInterfaceUP(e.Device.PeerName); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	if err := setInterfaceUP("lo"); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	_, subnet, err := net.ParseCIDR("0.0.0.0/0")
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	defaultRoute := netlink.Route{
+		LinkIndex: l.Attrs().Index,
+		Dst:       subnet,
+		Gw:        net.ParseIP(e.Network.Gateway),
+	}
+	if err := netlink.RouteAdd(&defaultRoute); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	return nil
+}
+
+func configPortMapping(ep *Endpoint, cinfo *container.Container) error {
+	for _, pm := range ep.PortMapping {
+		portMapping := strings.Split(pm, ":")
+		if len(portMapping) != 2 {
+			logrus.Errorf("port mapping format error, %v", pm)
+			continue
+		}
+		iptablesCmd := fmt.Sprintf("-t nat -A PREROUTING -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s",
+			portMapping[0], ep.IPAddress.String(), portMapping[1])
+		cmd := exec.Command("iptables", strings.Split(iptablesCmd, " ")...)
+		//err := cmd.Run()
+		output, err := cmd.Output()
+		if err != nil {
+			logrus.Errorf("iptables Output, %v", output)
+			continue
+		}
+	}
+	return nil
+}
+
+func enterContainerNetns(enLink *netlink.Link, cinfo *container.Container) func() {
+	errFormat := "enterContainer: %s"
+	f, err := os.OpenFile(fmt.Sprintf("/proc/%d/ns/net", cinfo.Pid), os.O_RDONLY, 0)
+	if err != nil {
+		fmt.Printf(errFormat, err)
+		f.Close()
+		return nil
+	}
+
+	nsFD := f.Fd()
+	runtime.LockOSThread()
+	origns, err := netns.Get()
+	if err != nil {
+		fmt.Printf(errFormat, err)
+		runtime.UnlockOSThread()
+		origns.Close()
+		return nil
+	}
+
+	if err = netlink.LinkSetNsFd(*enLink, int(nsFD)); err != nil {
+		fmt.Printf(errFormat, err)
+		runtime.UnlockOSThread()
+		origns.Close()
+		return nil
+	}
+	if err = netns.Set(netns.NsHandle(nsFD)); err != nil {
+		fmt.Printf(errFormat, err)
+		runtime.UnlockOSThread()
+		origns.Close()
+		return nil
+	}
+
+	return func() {
+		netns.Set(origns)
+		origns.Close()
+		runtime.UnlockOSThread()
+		f.Close()
+	}
 }

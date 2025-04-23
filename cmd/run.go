@@ -14,6 +14,7 @@ import (
 	"github.com/wlbyte/mydocker/cgroups/subsystems"
 	"github.com/wlbyte/mydocker/consts"
 	"github.com/wlbyte/mydocker/container"
+	"github.com/wlbyte/mydocker/network"
 	"github.com/wlbyte/mydocker/utils"
 )
 
@@ -54,6 +55,14 @@ var RunCommand = cli.Command{
 			Name:  "e",
 			Usage: "pass environment variables, eg: run -e name=mydocker",
 		},
+		cli.StringFlag{
+			Name:  "net",
+			Usage: "container network, eg: run -net mydocker0",
+		},
+		cli.StringSliceFlag{
+			Name:  "p",
+			Usage: "port mapping, eg: run -p 8080:80",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		errFormat := "runCommand: %w"
@@ -66,6 +75,8 @@ var RunCommand = cli.Command{
 			Detach:      context.Bool("d"),
 			Volume:      context.String("v"),
 			Environment: context.StringSlice("e"),
+			Network:     context.String("net"),
+			PortMapping: context.StringSlice("p"),
 			CreateAt:    time.Now().Format("2006-01-02 15:04:05"),
 		}
 		if c.TTY && c.Detach || (!c.TTY && !c.Detach) {
@@ -82,6 +93,9 @@ var RunCommand = cli.Command{
 			} else {
 				c.Name = c.Id
 			}
+		}
+		if c.Network == "" {
+			c.Network = "mydocker0"
 		}
 		c.ImageName = context.Args().Get(0)
 		c.Cmds = context.Args().Tail()
@@ -106,12 +120,6 @@ func run(c *container.Container) {
 		log.Println("[error] run:", err)
 		return
 	}
-	c.Pid = parent.Process.Pid
-	c.Status = consts.STATUS_RUNNING
-	if err := recordContainerInfo(c); err != nil {
-		log.Printf("[error] run: %s", err)
-		return
-	}
 	sendInitCommand(c.Cmds, writePipe)
 	log.Println("[debug] send init command to pipe")
 	cgroupManager := cgroups.NewCgroupManager("mydocker-cgroup")
@@ -121,6 +129,22 @@ func run(c *container.Container) {
 	if err := cgroupManager.Apply(parent.Process.Pid, c.ResourceConfig); err != nil {
 		log.Println("[error] run:", err)
 	}
+
+	// 持久化容器信息
+	c.Pid = parent.Process.Pid
+	c.Status = consts.STATUS_RUNNING
+	if err := recordContainerInfo(c); err != nil {
+		log.Printf("[error] run: %s", err)
+		return
+	}
+
+	// 配置网络
+	if err := network.Connect(c); err != nil {
+		log.Printf("[error] run: %s", err)
+		return
+	}
+
+	// tty模式
 	if c.TTY {
 		if err := parent.Wait(); err != nil {
 			log.Printf("[error] run parent.Wait: %s", err)
@@ -131,6 +155,11 @@ func run(c *container.Container) {
 		}
 		log.Println("[debug] clear work dir")
 		container.DelWorkspace(c)
+		c.Pid = 0
+		c.Status = consts.STATUS_EXITED
+		if err := recordContainerInfo(c); err != nil {
+			log.Printf("[error] run: %s", err)
+		}
 		return
 	}
 	log.Println("[debug] run as a daemon")

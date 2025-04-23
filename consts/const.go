@@ -14,6 +14,7 @@ const (
 const (
 	STATUS_RUNNING     = "running"
 	STATUS_STOPPED     = "stopped"
+	STATUS_EXITED      = "exited"
 	PATH_CONTAINER     = PATH_HOME + "/containers"
 	PATH_FS_ROOT       = PATH_HOME + "/overlay2"
 	PATH_LOWER_FORMAT  = PATH_FS_ROOT + "/%s/lower"
@@ -22,6 +23,7 @@ const (
 	PATH_WORK_FORMAT   = PATH_FS_ROOT + "/%s/work"
 	MOUNT_PATH_FORMAT  = "lowerdir=%s,upperdir=%s,workdir=%s"
 )
+
 func GetPathLower(containerID string) string {
 	return fmt.Sprintf(PATH_LOWER_FORMAT, containerID)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/wlbyte/mydocker/consts"
 	"github.com/wlbyte/mydocker/container"
+	"github.com/wlbyte/mydocker/network"
 )
 
 func recordContainerInfo(ci *container.Container) error {
@@ -77,6 +78,25 @@ func getContainerInfo(f string) *container.Container {
 		return nil
 	}
 	return c
+}
+
+func GetEndpointInfo(endpointID string) *network.Endpoint {
+	f := findJsonFilePath(endpointID, consts.PATH_NETWORK_ENDPOINT)
+	return getEndpointInfo(f)
+}
+
+func getEndpointInfo(f string) *network.Endpoint {
+	var e *network.Endpoint
+	bs, err := os.ReadFile(f)
+	if err != nil && err != io.EOF {
+		log.Println("[info] getContainerInfo:", err)
+		return nil
+	}
+	if err := json.Unmarshal(bs, &e); err != nil {
+		log.Println("[info] getContainerInfo:", err)
+		return nil
+	}
+	return e
 }
 
 func findJsonFilePath(subFilePath, searchDir string) string {

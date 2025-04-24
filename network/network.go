@@ -66,7 +66,7 @@ func (n *Network) Load() error {
 }
 
 type Endpoint struct {
-	ID          string `json:"id"`
+	ID          string `json:"id"` // 容器
 	Device      netlink.Veth
 	IPAddress   net.IP
 	MacAddress  net.HardwareAddr
@@ -74,9 +74,23 @@ type Endpoint struct {
 	PortMapping []string
 }
 
+func recordEndpointInfo(e *Endpoint) error {
+	errFormat := "recordEndpointInfo: %w"
+	curPath := consts.PATH_NETWORK_ENDPOINT
+	container.MkDir(curPath)
+	bs, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	if err := os.WriteFile(filepath.Join(curPath, e.ID+".json"), bs, consts.MODE_0755); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	return nil
+}
+
 type IPAMer interface {
 	Allocate(subnet *net.IPNet) (ip net.IP, err error)
-	Release(subnet *net.IPNet, ipaddr *net.IP) error
+	Release(subnet *net.IPNet, ipaddr net.IP) error
 	ReleaseSubnet(subnet string) error
 }
 
@@ -149,12 +163,12 @@ func (i *IPAM) Allocate(subnet *net.IPNet) (ip net.IP, err error) {
 	return ip, nil
 }
 
-func (i *IPAM) Release(subnet *net.IPNet, ip *net.IP) error {
+func (i *IPAM) Release(subnet *net.IPNet, ip net.IP) error {
 	errFormat := "ipam.Release: %w"
 	i.wg.Lock()
 	defer i.wg.Unlock()
 	subN := IPv42Uint(subnet.IP)
-	ipN := IPv42Uint(*ip)
+	ipN := IPv42Uint(ip.To4())
 	n := ipN - subN
 	if i.Subnets == nil {
 		i.Subnets = map[string]*string{}
@@ -232,14 +246,64 @@ func Connect(c *container.Container) error {
 		return fmt.Errorf(errFormat, err)
 	}
 
-	if err := configPortMapping(endpoint, c); err != nil {
+	if err := configPortMapping(endpoint, c, "add"); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	if err := recordEndpointInfo(endpoint); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
 
 	return nil
 }
 
-func Disconnect(c *container.Container) error {
+func Disconnect(c *container.Container, e *Endpoint) error {
+	errFormat := "network.Connect: %w"
+
+	// create veth
+	bridge := &BridgeNetworkDriver{}
+
+	n := Network{
+		Name: c.Network,
+	}
+	if err := n.Load(); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	if err := bridge.Disconnect(&n, e); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	return nil
+}
+
+func DelConnect(c *container.Container, e *Endpoint) error {
+	errFormat := "network.DelConnect: %w"
+	// 删除 veth
+	bridge := &BridgeNetworkDriver{}
+
+	n := Network{
+		Name: c.Network,
+	}
+	if err := n.Load(); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	if err := bridge.DelConnect(&n, e); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	// 释放IP
+	_, sub, err := net.ParseCIDR(n.Subnet)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	if err := NewIPAM().Release(sub, e.IPAddress); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
+	if err := configPortMapping(e, c, "del"); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+
 	return nil
 }
 
@@ -283,15 +347,19 @@ func configEndpointIpAddressAndRoute(e *Endpoint, c *container.Container) error 
 	return nil
 }
 
-func configPortMapping(ep *Endpoint, cinfo *container.Container) error {
+func configPortMapping(ep *Endpoint, cinfo *container.Container, action string) error {
 	for _, pm := range ep.PortMapping {
 		portMapping := strings.Split(pm, ":")
 		if len(portMapping) != 2 {
 			logrus.Errorf("port mapping format error, %v", pm)
 			continue
 		}
-		iptablesCmd := fmt.Sprintf("-t nat -A PREROUTING -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s",
-			portMapping[0], ep.IPAddress.String(), portMapping[1])
+		operation := "-A"
+		if action == "del" {
+			operation = "-D"
+		}
+		iptablesCmd := fmt.Sprintf("-t nat % PREROUTING -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s",
+			operation, portMapping[0], ep.IPAddress.String(), portMapping[1])
 		cmd := exec.Command("iptables", strings.Split(iptablesCmd, " ")...)
 		//err := cmd.Run()
 		output, err := cmd.Output()

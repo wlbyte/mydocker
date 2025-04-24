@@ -8,6 +8,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/wlbyte/mydocker/consts"
+	"github.com/wlbyte/mydocker/network"
 	"golang.org/x/sys/unix"
 )
 
@@ -34,6 +35,10 @@ func stopContainer(containerID string) error {
 	if c == nil {
 		return fmt.Errorf(errFormat, errors.New("conainter is not exist"))
 	}
+	e := GetEndpointInfo(c.Id)
+	if err := network.DelConnect(c, e); err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
 	if err := unix.Kill(c.Pid, unix.SIGTERM); err != nil {
 		if !strings.Contains(err.Error(), "no such process") {
 			return fmt.Errorf(errFormat, err)
@@ -44,5 +49,6 @@ func stopContainer(containerID string) error {
 	if err := recordContainerInfo(c); err != nil {
 		return fmt.Errorf(errFormat, err)
 	}
+
 	return nil
 }

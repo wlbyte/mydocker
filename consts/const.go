@@ -51,10 +51,11 @@ const (
 
 // network
 const (
-	DEFAULT_NETWORK      = "default"
-	DEFAULT_DRIVER       = "bridge"
-	PATH_NETWORK         = PATH_HOME + "/network"
-	PATH_IPAM            = PATH_NETWORK + "/ipam"
-	PATH_NETWORK_NETWORK = PATH_NETWORK + "/network"
-	PATH_IPAM_JSON       = PATH_IPAM + "/subnet.json"
+	DEFAULT_NETWORK       = "default"
+	DEFAULT_DRIVER        = "bridge"
+	PATH_NETWORK          = PATH_HOME + "/network"
+	PATH_IPAM             = PATH_NETWORK + "/ipam"
+	PATH_NETWORK_NETWORK  = PATH_NETWORK + "/network"
+	PATH_NETWORK_ENDPOINT = PATH_NETWORK + "/endpoint"
+	PATH_IPAM_JSON        = PATH_IPAM + "/subnet.json"
 )

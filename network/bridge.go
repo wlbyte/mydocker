@@ -160,6 +160,7 @@ func (b *BridgeNetworkDriver) Connect(network *Network, endpoint *Endpoint) erro
 	}
 	return nil
 }
+
 func (b *BridgeNetworkDriver) Disconnect(network *Network, endpoint *Endpoint) error {
 	errFormat := "bridge.Disconnect: %w"
 	vethName := endpoint.ID[:5]
@@ -171,6 +172,25 @@ func (b *BridgeNetworkDriver) Disconnect(network *Network, endpoint *Endpoint) e
 		return fmt.Errorf(errFormat, err)
 	}
 
+	return nil
+}
+
+func (b *BridgeNetworkDriver) DelConnect(network *Network, endpoint *Endpoint) error {
+	errFormat := "bridge.DelConnect: %w"
+	br, err := netlink.LinkByName(network.Name)
+	if err != nil {
+		return fmt.Errorf(errFormat, err)
+	}
+	la := netlink.NewLinkAttrs()
+	la.Name = endpoint.ID[:5]
+	la.MasterIndex = br.Attrs().Index
+	endpoint.Device = netlink.Veth{
+		LinkAttrs: la,
+		PeerName:  "cif-" + endpoint.ID[:5],
+	}
+	if err := netlink.LinkDel(&endpoint.Device); err != nil {
+		fmt.Println("[warn] bridge.DelConnect: ", err)
+	}
 	return nil
 }
 

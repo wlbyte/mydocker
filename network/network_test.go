@@ -32,7 +32,7 @@ func TestRelease(t *testing.T) {
 	}
 	ip := net.ParseIP("172.18.0.2")
 	ip4 := ip[12:]
-	if err := ipam.Release(subnet, &ip4); err != nil {
+	if err := ipam.Release(subnet, ip4); err != nil {
 		t.Errorf("ipam.Release %s", err)
 	}
 }

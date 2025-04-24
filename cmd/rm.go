@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/urfave/cli"
 	"github.com/wlbyte/mydocker/consts"
@@ -49,6 +50,10 @@ func rmContainer(containerIDs []string, force bool) error {
 			}
 		}
 		container.DelWorkspace(c)
+
+		if err := os.Remove(findJsonFilePath(c.Id, consts.PATH_NETWORK_ENDPOINT)); err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
 	}
 
 	return nil
